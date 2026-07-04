@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>WS Display · Time Clock</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
+<style>
+:root{
+  --navy:#0f1e3d; --navy2:#1b3a6b; --accent:#3b82f6; --bg:#eef1f7; --card:#fff; --line:#e5e9f2;
+  --ink:#0f1e3d; --muted:#6b7896; --ok:#16a34a; --okbg:#dcfce7; --warn:#d97706; --warnbg:#fef3c7;
+  --bad:#dc2626; --badbg:#fee2e2; --grad:linear-gradient(135deg,#0f1e3d 0%,#1b3a6b 55%,#2563eb 100%);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;-webkit-tap-highlight-color:transparent}
+button{font-family:inherit;cursor:pointer;border:none}
+input,select{font-family:inherit;font-size:15px}
+.app{max-width:460px;margin:0 auto;min-height:100vh;background:var(--bg);display:flex;flex-direction:column;position:relative}
+
+/* Login (kiosk keypad) */
+.login{min-height:100vh;background:radial-gradient(120% 90% at 25% 15%, #244a86 0%, #12274d 45%, #0a1530 100%);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:22px;position:relative;overflow:hidden}
+.login-glow{position:absolute;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,#3b82f6,transparent 68%);opacity:.4;top:-70px;right:-70px;filter:blur(24px);animation:float 9s ease-in-out infinite}
+.login-glow.b{background:radial-gradient(circle,#60a5fa,transparent 68%);opacity:.22;bottom:-90px;left:-70px;top:auto;right:auto;animation-delay:-4s}
+@keyframes float{0%,100%{transform:translate(0,0)}50%{transform:translate(-16px,20px)}}
+.login-top{text-align:center;margin-bottom:20px;z-index:1}
+.login-logo{width:56px;height:56px;border-radius:17px;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:29px;margin:0 auto 10px;backdrop-filter:blur(6px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.login-brand{font-size:13px;font-weight:700;letter-spacing:3.5px;text-transform:uppercase;opacity:.8}
+.login-clock{font-size:32px;font-weight:700;margin-top:8px;font-variant-numeric:tabular-nums;line-height:1}
+.login-date{font-size:12.5px;opacity:.65;margin-top:2px}
+.login-card{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);border-radius:26px;padding:22px 20px;width:100%;max-width:330px;backdrop-filter:blur(14px);z-index:1;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.login-title{font-size:19px;font-weight:700;text-align:center}
+.login-sub{font-size:12.5px;opacity:.7;text-align:center;margin:3px 0 18px}
+.id-display{display:flex;justify-content:center;gap:8px;margin-bottom:18px;min-height:50px}
+.id-display span{min-width:38px;height:50px;padding:0 6px;border-radius:12px;background:rgba(255,255,255,.12);display:grid;place-items:center;font-size:25px;font-weight:700;font-variant-numeric:tabular-nums}
+.id-display .ph2{background:none;opacity:.4;font-size:22px;letter-spacing:4px}
+.pin-dots{display:flex;justify-content:center;gap:18px;margin-bottom:18px;min-height:18px}
+.pin-dots span{width:15px;height:15px;border-radius:50%;border:2px solid rgba(255,255,255,.45);transition:.15s}
+.pin-dots span.on{background:#fff;border-color:#fff;transform:scale(1.12)}
+.login-err{text-align:center;color:#fca5a5;font-size:12.5px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;justify-items:center}
+.kbtn{width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.13);color:#fff;font-size:24px;font-weight:600;display:grid;place-items:center;border:1px solid rgba(255,255,255,.1)}
+.kbtn:active{transform:scale(.92);background:rgba(255,255,255,.24)}
+.kbtn.ghost{background:rgba(255,255,255,.05);font-size:21px;opacity:.85}
+.kbtn.go{background:linear-gradient(135deg,#3b82f6,#2563eb);border-color:transparent;box-shadow:0 6px 16px rgba(37,99,235,.45)}
+.login-back{width:100%;margin-top:14px;background:none;color:rgba(255,255,255,.7);font-size:12.5px;font-weight:600;padding:6px}
+.login-foot{position:absolute;bottom:16px;font-size:11px;opacity:.5;z-index:1;display:flex;align-items:center;gap:5px}
+
+/* Header */
+.hdr{background:var(--grad);color:#fff;padding:16px 18px;display:flex;align-items:center;gap:12px}
+.hdr .av{width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.15);display:grid;place-items:center;font-size:22px}
+.hdr b{font-size:16px;display:block} .hdr span{font-size:12px;opacity:.75}
+.hdr .out{margin-left:auto;background:rgba(255,255,255,.14);color:#fff;padding:8px 12px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:6px}
+
+.body{flex:1;padding:18px;padding-bottom:90px;overflow-y:auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}
+.card h2{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.card h2 i{color:var(--accent);font-size:18px}
+
+/* Clock face */
+.clockface{background:var(--grad);color:#fff;border-radius:18px;padding:26px 20px;text-align:center;margin-bottom:16px}
+.clockface .time{font-size:52px;font-weight:700;letter-spacing:1px;font-variant-numeric:tabular-nums;line-height:1}
+.clockface .ampm{font-size:20px;opacity:.8}
+.clockface .date{opacity:.8;margin-top:6px;font-size:13px}
+.clockface .status{margin-top:16px;display:inline-flex;align-items:center;gap:7px;padding:7px 16px;border-radius:22px;background:rgba(255,255,255,.16);font-size:14px;font-weight:600}
+.status .pt{width:9px;height:9px;border-radius:50%;background:#fff}
+.status.in .pt{background:#4ade80} .status.meal .pt,.status.break .pt{background:#fbbf24}
+
+.punchgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pbtn{padding:18px 12px;border-radius:14px;font-weight:600;font-size:15px;display:flex;flex-direction:column;align-items:center;gap:8px;background:#fff;border:1.5px solid var(--line);color:var(--navy)}
+.pbtn i{font-size:26px}
+.pbtn:disabled{opacity:.35}
+.pbtn.go{background:var(--ok);border-color:var(--ok);color:#fff} .pbtn.go:disabled{background:#fff;border-color:var(--line);color:var(--navy)}
+.pbtn.stop{background:var(--bad);border-color:var(--bad);color:#fff} .pbtn.stop:disabled{background:#fff;border-color:var(--line);color:var(--navy)}
+.pbtn:active:not(:disabled){transform:scale(.97)}
+
+.bio{background:var(--warnbg);color:#92600a;border-radius:12px;padding:14px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start;margin-bottom:16px}
+.bio i{font-size:20px;margin-top:1px}
+.gate{margin-top:12px;text-align:center;font-size:13.5px;color:var(--warn);font-weight:600;display:flex;align-items:center;justify-content:center;gap:7px;min-height:20px}
+.gate i{font-size:17px}
+
+.plist{list-style:none} .plist li{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.plist li:first-child{border-top:none}
+.plist .tt{font-variant-numeric:tabular-nums;font-weight:600;width:78px}
+.plist .src{margin-left:auto;font-size:10px;text-transform:uppercase;letter-spacing:.4px;background:#eef1f7;color:var(--muted);padding:2px 7px;border-radius:5px}
+.plist .src.web{background:#eef2ff;color:#4338ca}
+.empty{text-align:center;color:var(--muted);padding:26px 0;font-size:14px}
+
+/* Timecard */
+.totals{display:flex;gap:8px;margin-bottom:14px}
+.tc{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
+.tc span{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block}
+.tc b{font-size:20px;font-variant-numeric:tabular-nums}
+.tc.tot{background:var(--navy);color:#fff} .tc.tot span{color:rgba(255,255,255,.7)}
+.periodsel{display:flex;gap:8px;margin-bottom:14px}
+.periodsel button{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:13px;font-weight:600;color:var(--muted)}
+.periodsel button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+
+.dayblk{border:1px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.dayhd{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#f4f6fb;font-size:13px}
+.dayhd b{color:var(--navy)} .dayhd .h{font-variant-numeric:tabular-nums;font-weight:700}
+.segrow{display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid var(--line)}
+.segrow .chk{width:24px;height:24px;border-radius:7px;border:2px solid var(--line);display:grid;place-items:center;flex-shrink:0;background:#fff;color:transparent;font-size:15px}
+.segrow .chk.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.segrow .io{flex:1;font-size:13.5px} .segrow .io .b{color:var(--muted);font-size:11.5px}
+.segrow .sh{font-variant-numeric:tabular-nums;font-weight:600}
+.flag{background:var(--badbg);color:var(--bad);font-size:12px;padding:8px 14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:7px}
+.flag.prem{background:var(--okbg);color:#166534}
+.apbar{display:flex;gap:8px;margin:6px 0 16px}
+.apstat{flex:1;text-align:center;padding:9px;border-radius:10px;font-size:12px;font-weight:600;background:#eef1f7;color:var(--muted)}
+.apstat.done{background:var(--okbg);color:var(--ok)}
+.bigbtn{width:100%;padding:15px;border-radius:13px;background:var(--grad);color:#fff;font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center;gap:8px}
+.bigbtn.ghost{background:#eef1f7;color:var(--navy)}
+.bigbtn:disabled{opacity:.5}
+
+/* Alerts */
+.alert{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--line)}
+.alert:first-child{border-top:none}
+.alert .ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:20px;flex-shrink:0}
+.alert.warn .ic{background:var(--warnbg);color:var(--warn)} .alert.ok .ic{background:var(--okbg);color:var(--ok)} .alert.bad .ic{background:var(--badbg);color:var(--bad)}
+.alert .msg{flex:1;font-size:14px;font-weight:500}
+.alert .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.alert .ack{background:var(--ok);color:#fff;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex-shrink:0;font-size:17px}
+
+/* Requests / forms */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.field input,.field select{width:100%;padding:12px;border:1px solid var(--line);border-radius:11px;background:#fbfcfe}
+.reqcard{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.pill{font-size:11px;font-weight:600;padding:3px 10px;border-radius:16px}
+.pill.warn{background:var(--warnbg);color:var(--warn)} .pill.ok{background:var(--okbg);color:var(--ok)} .pill.neutral{background:#eef1f7;color:var(--muted)}
+
+/* Bottom nav */
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:460px;background:#fff;border-top:1px solid var(--line);display:flex;padding:8px 4px calc(8px + env(safe-area-inset-bottom));z-index:20}
+.nav button{flex:1;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px;color:var(--muted);font-size:11px;font-weight:600;position:relative}
+.nav button i{font-size:23px}
+.nav button.on{color:var(--accent)}
+.nav .nb{position:absolute;top:2px;right:22%;background:#f43f5e;color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;padding:0 4px}
+
+.toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--navy);color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;opacity:0;transition:.25s;z-index:40;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.ph{font-size:20px;font-weight:700;margin-bottom:2px}
+.psub{color:var(--muted);font-size:13px;margin-bottom:16px}
+
+/* Calendar (time off) */
+.cal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.cal-hd b{font-size:16px}
+.cal-hd button{background:#eef1f7;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:19px;color:var(--navy)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.cal-wd{margin-bottom:6px}
+.cal-wd div{text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase}
+.cal-day{aspect-ratio:1;border-radius:11px;background:#f4f6fb;font-size:15px;font-weight:600;color:var(--ink);display:grid;place-items:center}
+.cal-day:active:not(:disabled){transform:scale(.94)}
+.cal-day.past{opacity:.32}
+.cal-day.today{box-shadow:inset 0 0 0 2px var(--accent)}
+.cal-day.sel{background:var(--navy);color:#fff}
+.cal-pad{aspect-ratio:1}
+.nav button{font-size:10px}
+
+/* PTO / Sick balances */
+.balgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.balcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.balhd{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:12px}
+.balhd i{color:var(--accent);font-size:17px}
+.balrow{display:flex;justify-content:space-between;text-align:center;margin-bottom:10px}
+.balrow span{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.balrow b{font-size:16px;font-variant-numeric:tabular-nums}
+.balrow .av b{color:var(--ok)}
+.balbar{height:8px;border-radius:5px;background:#eef1f7;overflow:hidden;display:flex}
+.balbar .seg.used{background:var(--navy)} .balbar .seg.comm{background:var(--warn)}
+.balfoot{font-size:11px;color:var(--muted);margin-top:7px}
+.daylist{display:flex;flex-direction:column;gap:8px}
+.dayhrs{display:flex;justify-content:space-between;align-items:center;background:#f4f6fb;border-radius:10px;padding:9px 12px}
+.dayhrs span{font-size:13.5px;font-weight:600}
+.dayhrs select{padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-weight:600}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   DATA — in-memory for the demo. In production these are the
+   SAME Supabase tables the Timekeeping Center reads/writes, so
+   punches, approvals, requests and alerts sync between apps.
+============================================================ */
+const TZ={'America/Los_Angeles':'Pacific (CA)','America/New_York':'Eastern (PA)'};
+const STATE_RULES={
+  CA:{label:'California', daily:true, ot:8, dt:12, weekly:40, mealLaw:true},
+  PA:{label:'Pennsylvania', daily:false, weekly:40, mealLaw:false}
+};
+function ruleFor(e){ return STATE_RULES[e.loc]||STATE_RULES.CA; }
+const PAY_ANCHOR='2025-12-29';
+
+const DB={
+  employees:[
+    {id:'e1', name:'Maria Sanchez',   empId:'735', loc:'CA', dept:'Production', tz:'America/Los_Angeles', webPunch:true,  pto:{allot:80,used:24},  sick:{allot:40,used:8}},
+    {id:'e2', name:'David Cruz',       empId:'781', loc:'CA', dept:'Warehouse',  tz:'America/Los_Angeles', webPunch:false, pto:{allot:80,used:40},  sick:{allot:40,used:16}},
+    {id:'e3', name:'Karen Miller',     empId:'651', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true,  pto:{allot:120,used:32}, sick:{allot:40,used:0}},
+    {id:'e4', name:'Adolfo Amaya',     empId:'037', loc:'CA', dept:'Production', tz:'America/Los_Angeles', webPunch:false, pto:{allot:80,used:8},   sick:{allot:40,used:24}},
+    {id:'e5', name:'Aileen Arguelles', empId:'112', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true,  pto:{allot:120,used:60}, sick:{allot:40,used:8}},
+    {id:'e6', name:'Angel Coronel',    empId:'065', loc:'CA', dept:'Warehouse',  tz:'America/Los_Angeles', webPunch:false, pto:{allot:80,used:16},  sick:{allot:40,used:0}},
+    {id:'e7', name:'Bertha Flores',    empId:'078', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true,  pto:{allot:120,used:48}, sick:{allot:40,used:16}}
+  ],
+  punches:[],          // {id, emp, ts(UTC ISO), type, source}
+  segApprovals:{},     // `${inPunchId}|E` -> {by,at}   (employee attestation)
+  requests:[],         // {id, emp, weekKey, kind, proposed:{ymd,time,type}, note, status, by, at}
+  ptoRequests:[],      // {id, emp, dates:[ymd], type, note, status, by, at}
+  ackAlerts:{},        // acknowledged alert keys
+  pins:{'735':'1234','651':'2580'}  // empId -> 4-digit PIN (demo; hashed in Supabase later)
+};
+
+/* seed a few days of punches for the current pay period (as if from the clock) */
+(function seed(){
+  const base=new Date(); base.setHours(0,0,0,0); const day=86400000;
+  function pk(emp,off,h,m,type,src){ const d=new Date(base.getTime()-off*day); d.setHours(h,m,0,0);
+    return {id:'p'+Math.random().toString(36).slice(2,8), emp, ts:d.toISOString(), type, source:src||'web'}; }
+  // Maria (e1, web): Mon-Wed clean, Thu short meal, Fri missing out
+  const rows=[
+    {o:4,r:[[8,1,'in'],[12,0,'meal_start'],[12,30,'meal_end'],[16,58,'out']]},
+    {o:3,r:[[7,58,'in'],[12,0,'meal_start'],[12,30,'meal_end'],[16,45,'out']]},
+    {o:2,r:[[8,3,'in'],[12,0,'meal_start'],[12,30,'meal_end'],[16,40,'out']]},
+    {o:1,r:[[8,0,'in'],[12,0,'meal_start'],[12,18,'meal_end'],[16,45,'out']]},
+    {o:0,r:[[8,5,'in'],[12,0,'meal_start'],[12,35,'meal_end']]}
+  ];
+  rows.forEach(d=>d.r.forEach(x=>DB.punches.push(pk('e1',d.o,x[0],x[1],x[2]))));
+  // Karen (e3, web): clean days
+  [4,3,2,1].forEach(o=>[[8,0,'in'],[12,0,'meal_start'],[12,30,'meal_end'],[16,30,'out']].forEach(x=>DB.punches.push(pk('e3',o,x[0],x[1],x[2]))));
+})();
+
+/* ============================================================
+   TIME + TIMECARD ENGINE (matches the Timekeeping Center)
+============================================================ */
+function me(){ return DB.employees.find(e=>e.id===ME); }
+function partsInTz(iso,tz){ const f=new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,weekday:'short'}); const p={}; f.formatToParts(new Date(iso)).forEach(x=>p[x.type]=x.value); return {ymd:`${p.year}-${p.month}-${p.day}`,hh:+p.hour,mm:+p.minute,wd:p.weekday}; }
+function fmtTime(iso,e){ return new Intl.DateTimeFormat('en-US',{timeZone:e.tz,hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(iso)); }
+function hhmm(iso,e){ const p=partsInTz(iso,e.tz); return `${String(p.hh).padStart(2,'0')}:${String(p.mm).padStart(2,'0')}`; }
+function offsetMin(d,tz){ const f=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}); const p={}; f.formatToParts(d).forEach(x=>p[x.type]=x.value); return (Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second)-d.getTime())/60000; }
+function wallToUtc(ymd,hm,tz){ const [Y,M,D]=ymd.split('-').map(Number); const [h,m]=hm.split(':').map(Number); const g=new Date(Date.UTC(Y,M-1,D,h,m,0)); let o=offsetMin(g,tz); let u=new Date(g.getTime()-o*60000); const o2=offsetMin(u,tz); if(o2!==o)u=new Date(g.getTime()-o2*60000); return u.toISOString(); }
+function ymdD(y){return new Date(y+'T00:00:00Z');}
+function ymdAdd(y,n){return new Date(ymdD(y).getTime()+n*86400000).toISOString().slice(0,10);}
+function weekStartOf(y){return ymdAdd(y,-((ymdD(y).getUTCDay()+6)%7));}
+function todayYmd(e){return partsInTz(new Date().toISOString(),e.tz).ymd;}
+function weekKeyFor(iso,e){ const p=partsInTz(iso,e.tz); const local=new Date(p.ymd+'T00:00:00Z'); const dow=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(p.wd); const mon=new Date(local.getTime()-((dow+6)%7)*86400000); return mon.toISOString().slice(0,10); }
+function weekLabel(key){ const s=new Date(key+'T00:00:00Z'), e=new Date(s.getTime()+6*86400000); const f=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); return `${f(s)} – ${f(e)}`; }
+function payPeriodStart(ymd){ const ms=Date.parse(ymd+'T00:00:00Z')-Date.parse(PAY_ANCHOR+'T00:00:00Z'); const n=Math.floor(ms/(14*86400000)); return new Date(Date.parse(PAY_ANCHOR+'T00:00:00Z')+n*14*86400000).toISOString().slice(0,10); }
+function h2(n){ const h=Math.floor(n); const m=Math.round((n-h)*60); return `${h}:${String(m).padStart(2,'0')}`; }
+
+function buildTimecard(empId,weekKey){
+  const e=me(); const rule=ruleFor(e);
+  const wp=DB.punches.filter(p=>p.emp===empId && weekKeyFor(p.ts,e)===weekKey).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
+  const byDay={}; wp.forEach(p=>{ const k=partsInTz(p.ts,e.tz).ymd; (byDay[k]=byDay[k]||[]).push(p); });
+  const days=Object.keys(byDay).sort().map(ymd=>{
+    const ps=byDay[ymd]; let worked=0,mealMin=0,exceptions=[],mealViol=false,inT=null,mealT=null;
+    ps.forEach(p=>{ const t=new Date(p.ts).getTime();
+      if(p.type==='in') inT=t;
+      else if(p.type==='out'){ if(inT){worked+=t-inT;inT=null;} else exceptions.push('Out with no In'); }
+      else if(p.type==='meal_start'){ mealT=t; if(inT){worked+=t-inT;inT=null;} }
+      else if(p.type==='meal_end'){ if(mealT){mealMin+=(t-mealT)/60000; inT=t; mealT=null;} } });
+    if(inT) exceptions.push('Missing out punch');
+    const hrs=worked/3600000;
+    if(rule.mealLaw){ if(hrs>5&&mealMin===0){exceptions.push('No meal past 5th hour — premium');mealViol=true;}
+      else if(mealMin>0&&mealMin<30){exceptions.push(`Short meal ${Math.round(mealMin)}m — premium`);mealViol=true;} }
+    return {ymd,punches:ps,hrs,exceptions,mealViol};
+  });
+  let reg=0,ot=0,dt=0;
+  if(rule.daily){ const worked=days.filter(d=>d.hrs>0); const seventh=worked.length>=7?worked[worked.length-1].ymd:null;
+    days.forEach(d=>{ const h=d.hrs;
+      if(d.ymd===seventh){ if(h>8){ot+=8;dt+=h-8;}else ot+=h; return; }
+      if(h>rule.dt){dt+=h-rule.dt;ot+=rule.dt-rule.ot;reg+=rule.ot;} else if(h>rule.ot){ot+=h-rule.ot;reg+=rule.ot;} else reg+=h; });
+    if(reg>rule.weekly){ot+=reg-rule.weekly;reg=rule.weekly;}
+  } else { const total=days.reduce((s,d)=>s+d.hrs,0); reg=Math.min(total,rule.weekly); ot=Math.max(0,total-rule.weekly); }
+  const total=days.reduce((s,d)=>s+d.hrs,0);
+  return {days,reg,ot,dt,total};
+}
+function daySegments(punches){
+  const segs=[]; let seg=null,pend=null;
+  [...punches].sort((a,b)=>new Date(a.ts)-new Date(b.ts)).forEach(p=>{ const t=new Date(p.ts).getTime();
+    if(p.type==='in'||p.type==='meal_end'||p.type==='break_end'){ if(pend&&segs.length){const pr=segs[segs.length-1];pr.breakMin=(t-pend.t)/60000;pr.breakPaid=pend.paid;} pend=null; seg={inId:p.id,in:p.ts,out:null,hrs:0,breakMin:null,breakPaid:false}; }
+    else if(p.type==='out'||p.type==='meal_start'||p.type==='break_start'){ if(seg){seg.out=p.ts;seg.hrs=(t-new Date(seg.in).getTime())/3600000;segs.push(seg);seg=null;} pend=p.type==='meal_start'?{t,paid:false}:p.type==='break_start'?{t,paid:true}:null; } });
+  if(seg) segs.push(seg); return segs;
+}
+function periodOf(e){ const t=todayYmd(e); return {start:payPeriodStart(t), stop:ymdAdd(payPeriodStart(t),13)}; }
+function buildPeriod(empId,start,stop){ let reg=0,ot=0,dt=0,total=0; const weeks=[]; let cur=weekStartOf(start);
+  while(cur<=stop){ const tc=buildTimecard(empId,cur); reg+=tc.reg;ot+=tc.ot;dt+=tc.dt;total+=tc.total; weeks.push(cur); cur=ymdAdd(cur,7); } return {reg,ot,dt,total,weeks}; }
+
+/* segment (E) approval */
+function segE(inId){ return !!DB.segApprovals[inId+'|E']; }
+function toggleE(inId){ const k=inId+'|E'; if(DB.segApprovals[k]) delete DB.segApprovals[k]; else DB.segApprovals[k]={by:me().name,at:new Date().toISOString()}; render(); }
+function weekSegIds(empId,weekKey){ const ids=[]; buildTimecard(empId,weekKey).days.forEach(d=>daySegments(d.punches).forEach(s=>ids.push(s.inId))); return ids; }
+function approveAllE(){ const p=periodOf(me()); p.weeks=buildPeriod(me().id,p.start,p.stop).weeks;
+  p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>DB.segApprovals[id+'|E']={by:me().name,at:new Date().toISOString()}));
+  toast('Timecard approved — thank you!'); render(); }
+function allApproved(){ const p=buildPeriod(me().id,periodOf(me()).start,periodOf(me()).stop); const ids=p.weeks.flatMap(wk=>weekSegIds(me().id,wk)); return ids.length>0 && ids.every(segE); }
+
+/* alerts (employee-facing) */
+function alertKey(a){ return `${a.type}|${a.date}`; }
+function myAlerts(){
+  const e=me(); const {start,stop}=periodOf(e); const out=[]; let cur=start;
+  while(cur<=stop && cur<=todayYmd(e)){
+    const wk=weekKeyFor(cur+'T12:00:00Z',e); const d=buildTimecard(e.id,wk).days.find(x=>x.ymd===cur);
+    if(d){ d.exceptions.forEach(x=>{ if(x.includes('Missing')||x.includes('no In')) out.push({type:'punch',date:cur,tone:'warn',ic:'ti-alarm',msg:`Missing punch on ${mdl(cur)}`,sub:'Tap Request to have it fixed'}); });
+      if(d.mealViol) out.push({type:'premium',date:cur,tone:'ok',ic:'ti-cash-banknote',msg:`Meal premium earned ${mdl(cur)}`,sub:'1 hour added at your regular rate'}); }
+    cur=ymdAdd(cur,1);
+  }
+  return out.map(a=>({...a,key:alertKey(a)})).filter(a=>!DB.ackAlerts[a.key]);
+}
+function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:new Date().toISOString()}; render(); }
+function mdl(ymd){ return ymdD(ymd).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
+
+/* punch actions */
+function empStatus(empId){ const e=me(); const last=DB.punches.filter(p=>p.emp===empId).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+  if(!last) return 'out'; if(['in','meal_end','break_end'].includes(last.type)) return 'in'; if(last.type==='meal_start') return 'meal'; if(last.type==='break_start') return 'break'; return 'out'; }
+function punch(type){
+  // enforce minimums: 30-min meal, 10-min break
+  if(type==='meal_end'||type==='break_end'){
+    const last=DB.punches.filter(p=>p.emp===ME).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+    if(last){ const isMeal=type==='meal_end'; const min=isMeal?30:10;
+      const mins=(Date.now()-new Date(last.ts).getTime())/60000;
+      if(mins<min){ toast(`${isMeal?'Meal':'Break'} minimum is ${min} min — ${Math.ceil(min-mins)} to go`); return; } }
+  }
+  DB.punches.push({id:'p'+Date.now(), emp:ME, ts:new Date().toISOString(), type, source:'web'});
+  toast(`Punched: ${labelType(type)}`); render(); }
+function labelType(t){ return {in:'Clock In',out:'Clock Out',meal_start:'Meal start',meal_end:'Meal end',break_start:'Break start',break_end:'Break end'}[t]||t; }
+
+/* ============================================================
+   UI
+============================================================ */
+let ME=null, TAB='clock', clockTimer=null, PERIOD='this';
+let REQ={kind:'add',ymd:'',time:'08:00',type:'in',note:''};
+
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),1900); }
+
+/* ---------- launch hook / future SSO ----------
+   When the HRIS opens this app in a tab, the employee is already
+   authenticated (company-email login) — so we sign them in and skip
+   the keypad. Until Supabase is wired, a deep link ?emp=<ID> (or
+   ?eid=<internal>) does the same, so the clock can be launched directly.
+   Opened via the plain link with no param -> falls back to ID + PIN.  */
+function bootstrapAuth(){
+  try{
+    const q=new URLSearchParams(location.search);
+    const token=q.get('token');          // TODO(Supabase): verify signed HRIS/session token
+    const byEmp=q.get('emp');             // e.g. ?emp=735  (employee ID number)
+    const byEid=q.get('eid');             // e.g. ?eid=e1   (internal id)
+    let e=null;
+    if(byEmp) e=DB.employees.find(x=>x.empId===byEmp);
+    else if(byEid) e=DB.employees.find(x=>x.id===byEid);
+    // TODO(Supabase): if(!e && !token){ const {data}=await supabase.auth.getSession(); if(data.session){ e=lookupByAuthId(data.session.user.id); } }
+    if(e){ ME=e.id; SSO=true; TAB='clock'; return true; }
+  }catch(_){}
+  return false;
+}
+
+/* ---------- keypad sign-in (ID + optional PIN) ---------- */
+let LOGIN=null, SSO=false;
+function initLogin(){ LOGIN={step:'id', id:'', pin:'', newpin:'', eid:null, empId:'', err:''}; }
+function empName(id){ const e=DB.employees.find(x=>x.id===id); return e?e.name:''; }
+function kp(d){ const L=LOGIN; L.err='';
+  if(L.step==='id'){ if(L.id.length<6) L.id+=d; render(); return; }
+  if(L.step==='pin'){ if(L.pin.length<4) L.pin+=d; if(L.pin.length===4) return checkPin(); return render(); }
+  if(L.step==='setpin'){ if(L.newpin.length<4) L.newpin+=d; if(L.newpin.length===4){ L.step='confirm'; L.pin=''; } return render(); }
+  if(L.step==='confirm'){ if(L.pin.length<4) L.pin+=d; if(L.pin.length===4) return confirmPin(); return render(); }
+}
+function kback(){ const L=LOGIN; L.err='';
+  if(L.step==='id') L.id=L.id.slice(0,-1);
+  else if(L.step==='setpin') L.newpin=L.newpin.slice(0,-1);
+  else L.pin=L.pin.slice(0,-1);
+  render();
+}
+function kgo(){ const L=LOGIN;
+  if(L.step==='id') return submitId();
+  if(L.step==='pin' && L.pin.length===4) return checkPin();
+  if(L.step==='confirm' && L.pin.length===4) return confirmPin();
+}
+function submitId(){ const L=LOGIN; const e=DB.employees.find(x=>x.empId===L.id);
+  if(!e){ L.err='ID not found'; L.id=''; return render(); }
+  L.eid=e.id; L.empId=e.empId;
+  if(DB.pins[e.empId]){ L.step='pin'; L.pin=''; } else { L.step='setpin'; L.newpin=''; L.pin=''; }
+  render();
+}
+function checkPin(){ const L=LOGIN; if(DB.pins[L.empId]===L.pin) return doSignIn(); L.err='Incorrect PIN'; L.pin=''; render(); }
+function confirmPin(){ const L=LOGIN; if(L.pin===L.newpin){ DB.pins[L.empId]=L.pin; toast('PIN created'); return doSignIn(); } L.err="PINs didn't match — try again"; L.step='setpin'; L.newpin=''; L.pin=''; render(); }
+function skipPin(){ doSignIn(); }
+function backToId(){ LOGIN.step='id'; LOGIN.pin=''; LOGIN.newpin=''; LOGIN.err=''; render(); }
+function doSignIn(){ ME=LOGIN.eid; LOGIN=null; TAB='clock'; render(); }
+function signOut(){ ME=null; LOGIN=null; if(clockTimer)clearInterval(clockTimer);
+  if(SSO){ SSO=false; toast('Returning to HRIS…'); /* TODO(Supabase): history.back() or redirect to HRIS */ }
+  render(); }
+function go(tab){ TAB=tab; render(); }
+
+function startLoginClock(){ if(clockTimer)clearInterval(clockTimer);
+  const t=()=>{ const el=document.getElementById('loginTime'); if(!el){clearInterval(clockTimer);return;}
+    const now=new Date(); el.textContent=now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    const d=document.getElementById('loginDate'); if(d) d.textContent=now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}); };
+  t(); clockTimer=setInterval(t,1000);
+}
+
+function render(){
+  const app=document.getElementById('app'); if(clockTimer){clearInterval(clockTimer);clockTimer=null;}
+  if(!ME){ if(!LOGIN) initLogin(); app.innerHTML=viewLogin(); startLoginClock(); return; }
+  const e=me();
+  app.innerHTML = `
+    <div class="hdr"><div class="av"><i class="ti ti-user"></i></div>
+      <div><b>${e.name}</b><span>ID ${e.empId} · ${TZ[e.tz]}</span></div>
+      <button class="out" onclick="signOut()"><i class="ti ti-logout"></i></button></div>
+    <div class="body">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests})[TAB]()}</div>
+    ${navBar()}`;
+  if(TAB==='clock') startClock();
+}
+function navBar(){ const n=myAlerts().length;
+  const item=(id,ic,lbl,badge)=>`<button class="${TAB===id?'on':''}" onclick="go('${id}')">${badge?`<span class="nb">${badge}</span>`:''}<i class="ti ${ic}"></i>${lbl}</button>`;
+  return `<div class="nav">${item('clock','ti-clock-hour-4','Clock')}${item('timecard','ti-id-badge-2','Timecard')}${item('timeoff','ti-calendar-plus','Time Off')}${item('alerts','ti-bell','Alerts',n)}${item('requests','ti-message-report','Requests')}</div>`;
+}
+
+function keypad(){
+  const k=n=>`<button class="kbtn" onclick="kp('${n}')">${n}</button>`;
+  return `<div class="keypad">
+    ${[1,2,3,4,5,6,7,8,9].map(k).join('')}
+    <button class="kbtn ghost" onclick="kback()"><i class="ti ti-backspace"></i></button>
+    ${k(0)}
+    <button class="kbtn go" onclick="kgo()"><i class="ti ti-arrow-right"></i></button>
+  </div>`;
+}
+function viewLogin(){
+  if(!LOGIN) initLogin(); const L=LOGIN;
+  const idBoxes = L.id ? L.id.split('').map(d=>`<span>${d}</span>`).join('') : `<span class="ph2">– – –</span>`;
+  const dots = len => `<div class="pin-dots">${[0,1,2,3].map(i=>`<span class="${i<len?'on':''}"></span>`).join('')}</div>`;
+  let title,sub,display,back='';
+  if(L.step==='id'){ title='Enter your ID'; sub='Type your employee ID number'; display=`<div class="id-display">${idBoxes}</div>`; }
+  else if(L.step==='pin'){ title=`Hi, ${empName(L.eid).split(' ')[0]}`; sub='Enter your 4-digit PIN'; display=dots(L.pin.length); back=`<button class="login-back" onclick="backToId()"><i class="ti ti-arrow-left"></i> Not you? Change ID</button>`; }
+  else if(L.step==='setpin'){ title='Create a PIN'; sub='Set a 4-digit PIN to keep your info private'; display=dots(L.newpin.length); back=`<button class="login-back" onclick="skipPin()">Skip for now</button>`; }
+  else { title='Confirm your PIN'; sub='Re-enter your new PIN'; display=dots(L.pin.length); }
+  return `<div class="login">
+    <div class="login-glow"></div><div class="login-glow b"></div>
+    <div class="login-top">
+      <div class="login-logo"><i class="ti ti-clock-hour-4"></i></div>
+      <div class="login-brand">WS Display · Time Clock</div>
+      <div class="login-clock" id="loginTime">–</div>
+      <div class="login-date" id="loginDate"></div>
+    </div>
+    <div class="login-card">
+      <div class="login-title">${title}</div><div class="login-sub">${sub}</div>
+      ${display}
+      <div class="login-err">${L.err?`<i class="ti ti-alert-circle"></i> ${L.err}`:''}</div>
+      ${keypad()}
+      ${back}
+    </div>
+    <div class="login-foot"><i class="ti ti-lock"></i> Protected by your personal PIN</div>
+  </div>`;
+}
+
+function startClock(){
+  const e=me();
+  const tick=()=>{ const now=new Date(); const tEl=document.getElementById('liveT'); if(!tEl){clearInterval(clockTimer);return;}
+    const parts=new Intl.DateTimeFormat('en-US',{timeZone:e.tz,hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true}).formatToParts(now);
+    const get=t=>parts.find(p=>p.type===t)?.value; tEl.innerHTML=`${get('hour')}:${get('minute')}:${get('second')} <span class="ampm">${get('dayPeriod')}</span>`;
+    const dEl=document.getElementById('liveD'); if(dEl) dEl.textContent=new Intl.DateTimeFormat('en-US',{timeZone:e.tz,weekday:'long',month:'long',day:'numeric'}).format(now);
+    // min-time gate for meal (30) / break (10)
+    const gEl=document.getElementById('gate'); if(!gEl) return;
+    const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+    let msg='';
+    if(last && (last.type==='break_start'||last.type==='meal_start')){
+      const isMeal=last.type==='meal_start'; const min=isMeal?30:10;
+      const remMs=min*60000-(Date.now()-new Date(last.ts).getTime());
+      const btn=document.getElementById(isMeal?'endMealBtn':'endBreakBtn');
+      if(remMs>0){ if(btn)btn.disabled=true; const rm=Math.floor(remMs/60000), rs=Math.floor((remMs%60000)/1000);
+        msg=`<i class="ti ti-lock-clock"></i> ${isMeal?'Meal':'Break'} minimum — you can return in <b>${rm}:${String(rs).padStart(2,'0')}</b>`; }
+      else { if(btn && e.webPunch) btn.disabled=false; msg=`<i class="ti ti-circle-check"></i> You can end your ${isMeal?'meal':'break'} now`; }
+    }
+    gEl.innerHTML=msg;
+  };
+  tick(); clockTimer=setInterval(tick,1000);
+}
+
+function viewClock(){
+  const e=me(); const st=empStatus(e.id);
+  const sm={out:['Clocked out','out'],in:['On the clock','in'],meal:['On meal break','meal'],break:['On break','break']};
+  const todayK=todayYmd(e); const today=DB.punches.filter(p=>p.emp===e.id&&partsInTz(p.ts,e.tz).ymd===todayK).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
+  const canPunch=e.webPunch;
+  const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+  const sinceMin = last?(Date.now()-new Date(last.ts).getTime())/60000:0;
+  const breakGate = st==='break' && sinceMin<10;   // 10-min minimum break
+  const mealGate  = st==='meal'  && sinceMin<30;    // 30-min minimum meal
+  const btns=`<div class="punchgrid">
+    <button class="pbtn go" onclick="punch('in')" ${st!=='out'||!canPunch?'disabled':''}><i class="ti ti-login-2"></i>Clock In</button>
+    <button class="pbtn stop" onclick="punch('out')" ${st==='out'||!canPunch?'disabled':''}><i class="ti ti-logout-2"></i>Clock Out</button>
+    <button class="pbtn" onclick="punch('meal_start')" ${st!=='in'||!canPunch?'disabled':''}><i class="ti ti-tools-kitchen-2"></i>Start Meal</button>
+    <button class="pbtn" id="endMealBtn" onclick="punch('meal_end')" ${st!=='meal'||mealGate||!canPunch?'disabled':''}><i class="ti ti-arrow-back-up"></i>End Meal</button>
+    <button class="pbtn" onclick="punch('break_start')" ${st!=='in'||!canPunch?'disabled':''}><i class="ti ti-coffee"></i>Start Break</button>
+    <button class="pbtn" id="endBreakBtn" onclick="punch('break_end')" ${st!=='break'||breakGate||!canPunch?'disabled':''}><i class="ti ti-arrow-back-up"></i>End Break</button>
+  </div>
+  <div class="gate" id="gate"></div>`;
+  return `
+    <div class="clockface">
+      <div class="time" id="liveT">–</div>
+      <div class="date" id="liveD"></div>
+      <div class="status ${sm[st][1]}"><span class="pt"></span> ${sm[st][0]}</div>
+    </div>
+    ${canPunch? btns : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>You clock in at the biometric station.</b><br>Web punching isn't enabled for your profile — your punches appear below automatically.</div></div>`}
+    <div class="card" style="margin-top:16px">
+      <h2><i class="ti ti-list-details"></i> Today's punches</h2>
+      ${today.length?`<ul class="plist">${today.map(p=>`<li><span class="tt">${fmtTime(p.ts,e)}</span> ${labelType(p.type)} <span class="src ${p.source==='web'?'web':''}">${p.source==='web'?'web':'clock'}</span></li>`).join('')}</ul>`:`<div class="empty">No punches yet today.</div>`}
+    </div>`;
+}
+
+function viewTimecard(){
+  const e=me(); const t=todayYmd(e);
+  let start,stop;
+  if(PERIOD==='this'){ start=payPeriodStart(t); stop=ymdAdd(start,13); }
+  else { start=ymdAdd(payPeriodStart(t),-14); stop=ymdAdd(start,13); }
+  const pd=buildPeriod(e.id,start,stop);
+  const ids=pd.weeks.flatMap(wk=>weekSegIds(e.id,wk));
+  const eDone=ids.length>0&&ids.every(segE);
+
+  let blocks='';
+  pd.weeks.forEach(wk=>{ const tc=buildTimecard(e.id,wk);
+    tc.days.forEach(d=>{ const segs=daySegments(d.punches); if(!segs.length) return;
+      const dt=ymdD(d.ymd); const wd=dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'});
+      const shift=segs.reduce((s,x)=>s+x.hrs,0);
+      blocks+=`<div class="dayblk"><div class="dayhd"><b>${wd}</b><span class="h">${h2(shift)} hrs</span></div>
+        ${segs.map(s=>`<div class="segrow" onclick="toggleE('${s.inId}')">
+          <div class="chk ${segE(s.inId)?'on':''}"><i class="ti ti-check"></i></div>
+          <div class="io">${fmtTime(s.in,e)} → ${s.out?fmtTime(s.out,e):'<span style="color:var(--bad)">missing</span>'}${s.breakMin!=null?`<div class="b">${Math.round(s.breakMin)} min ${s.breakPaid?'paid break':'meal'}</div>`:''}</div>
+          <div class="sh">${s.out?h2(s.hrs):'—'}</div></div>`).join('')}
+        ${d.exceptions.map(x=>`<div class="flag ${x.includes('premium')?'prem':''}"><i class="ti ti-${x.includes('premium')?'cash-banknote':'alert-triangle'}"></i> ${x}</div>`).join('')}
+      </div>`;
+    });
+  });
+
+  return `
+    <div class="ph">My Timecard</div><div class="psub">${weekLabel(start)} – ${weekLabel(ymdAdd(stop,-6))}</div>
+    <div class="periodsel"><button class="${PERIOD==='this'?'on':''}" onclick="PERIOD='this';render()">This pay period</button><button class="${PERIOD==='last'?'on':''}" onclick="PERIOD='last';render()">Last</button></div>
+    <div class="totals"><div class="tc"><span>Regular</span><b>${h2(pd.reg)}</b></div><div class="tc"><span>OT</span><b>${h2(pd.ot+pd.dt)}</b></div><div class="tc tot"><span>Total</span><b>${h2(pd.total)}</b></div></div>
+    ${blocks||'<div class="card"><div class="empty">No hours recorded this period.</div></div>'}
+    ${ids.length?`<div class="apbar"><div class="apstat ${eDone?'done':''}">You ${eDone?'✓':'⋯'}</div><div class="apstat">Manager ⋯</div><div class="apstat">HR ⋯</div></div>
+    <button class="bigbtn ${eDone?'ghost':''}" onclick="${eDone?'':`approveAllE()`}" ${eDone?'disabled':''}><i class="ti ti-${eDone?'circle-check':'checks'}"></i> ${eDone?'Approved — sent to your manager':'Approve my timecard'}</button>
+    <div class="psub" style="margin-top:12px;text-align:center">Tap each entry to verify it, or approve all at once. See a mistake? Use <b>Requests</b>.</div>`:''}`;
+}
+
+function viewAlerts(){
+  const al=myAlerts();
+  return `<div class="ph">Alerts</div><div class="psub">Notifications about your time</div>
+    ${al.length? `<div class="card">${al.map(a=>`<div class="alert ${a.tone}"><div class="ic"><i class="ti ${a.ic}"></i></div>
+      <div class="msg">${a.msg}<div class="sub">${a.sub}</div></div>
+      <button class="ack" onclick="ackAlert('${a.key}')"><i class="ti ti-check"></i></button></div>`).join('')}</div>`
+      : `<div class="card"><div class="empty">🎉 You're all caught up.</div></div>`}`;
+}
+
+function viewRequests(){
+  const e=me(); if(!REQ.ymd) REQ.ymd=todayYmd(e);
+  const mine=DB.requests.filter(r=>r.emp===e.id).sort((a,b)=>new Date(b.at)-new Date(a.at));
+  const TYPES=['in','meal_start','meal_end','break_start','break_end','out'];
+  return `<div class="ph">Request a correction</div><div class="psub">Ask HR to add or fix a punch</div>
+    <div class="card">
+      <div class="field"><label>What's wrong?</label><select onchange="REQ.kind=this.value">
+        <option value="add" ${REQ.kind==='add'?'selected':''}>Add a missing punch</option>
+        <option value="fix" ${REQ.kind==='fix'?'selected':''}>Fix an existing punch</option></select></div>
+      <div class="field"><label>Punch type</label><select onchange="REQ.type=this.value">${TYPES.map(t=>`<option value="${t}" ${REQ.type===t?'selected':''}>${labelType(t)}</option>`).join('')}</select></div>
+      <div class="field"><label>Date</label><input type="date" value="${REQ.ymd}" onchange="REQ.ymd=this.value"></div>
+      <div class="field"><label>Correct time</label><input type="time" value="${REQ.time}" onchange="REQ.time=this.value"></div>
+      <div class="field"><label>Note (required)</label><input placeholder="e.g. Forgot to clock out, left at 4:45" oninput="REQ.note=this.value" value="${(REQ.note||'').replace(/"/g,'&quot;')}"></div>
+      <button class="bigbtn" onclick="submitReq()"><i class="ti ti-send"></i> Send to HR</button>
+    </div>
+    ${mine.length?`<div class="card"><h2><i class="ti ti-history"></i> My requests</h2>
+      ${mine.map(r=>`<div class="reqcard"><div><b>${r.kind==='add'?'Add':'Fix'} ${labelType(r.proposed.type)} · ${fmt12(r.proposed.time)}</b><div class="sub" style="font-size:12px;color:var(--muted)">${mdl(r.proposed.ymd)} · "${r.note}"</div></div>
+        <span class="pill ${r.status==='pending'?'warn':r.status==='applied'?'ok':'neutral'}">${r.status}</span></div>`).join('')}</div>`:''}`;
+}
+function fmt12(hm){ if(!hm||!hm.includes(':'))return hm; let[h,m]=hm.split(':').map(Number); const ap=h<12?'AM':'PM'; h=h%12||12; return `${h}:${String(m).padStart(2,'0')} ${ap}`; }
+function submitReq(){
+  const e=me(); if(!REQ.note.trim()){ toast('Add a note'); return; }
+  DB.requests.push({id:'r'+Date.now(), emp:e.id, weekKey:weekKeyFor(REQ.ymd+'T12:00:00Z',e), kind:REQ.kind, proposed:{ymd:REQ.ymd,time:REQ.time,type:REQ.type}, note:REQ.note.trim(), status:'pending', by:e.name, at:new Date().toISOString()});
+  REQ={kind:'add',ymd:todayYmd(e),time:'08:00',type:'in',note:''};
+  toast('Request sent to HR'); render();
+}
+
+/* ---------- TIME OFF (PTO) ---------- */
+const HRS_PER_DAY=8;
+function committedHrs(empId,type){ return DB.ptoRequests.filter(r=>r.emp===empId && r.type===type && (r.status==='pending'||r.status==='approved')).reduce((s,r)=>s+(r.days||[]).reduce((a,d)=>a+d.hours,0),0); }
+function balance(e,key){ const b=e[key]||{allot:0,used:0}; const committed=committedHrs(e.id, key==='pto'?'PTO':'Sick'); return {allot:b.allot, used:b.used, committed, available:Math.max(0,b.allot-b.used-committed)}; }
+function balCard(label,icon,b){
+  const pc=v=>b.allot?Math.min(100,Math.max(0,v/b.allot*100)):0;
+  return `<div class="balcard"><div class="balhd"><i class="ti ${icon}"></i> ${label}</div>
+    <div class="balrow"><div><span>Used</span><b>${b.used}h</b></div><div><span>Committed</span><b>${b.committed}h</b></div><div class="av"><span>Available</span><b>${b.available}h</b></div></div>
+    <div class="balbar"><div class="seg used" style="width:${pc(b.used)}%"></div><div class="seg comm" style="width:${pc(b.committed)}%"></div></div>
+    <div class="balfoot">${b.available}h of ${b.allot}h left · ${(b.available/HRS_PER_DAY).toFixed(1)} days</div></div>`;
+}
+let PTO={month:null, selected:{}, type:'PTO', note:''};
+function initPTO(){ PTO.month=todayYmd(me()).slice(0,7); }
+function ptoMonthShift(n){ const [y,m]=PTO.month.split('-').map(Number); PTO.month=new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); render(); }
+function ptoToggle(ymd){ if(PTO.selected[ymd]!=null) delete PTO.selected[ymd]; else PTO.selected[ymd]=8; render(); }
+function setDayHours(ymd,h){ PTO.selected[ymd]=h; render(); }
+function ptoDays(){ return Object.keys(PTO.selected).sort(); }
+function ptoTotal(){ return ptoDays().reduce((s,d)=>s+PTO.selected[d],0); }
+function submitPTO(){ const days=ptoDays(); if(!days.length){ toast('Select at least one day'); return; }
+  const avail=balance(me(), PTO.type==='Sick'?'sick':'pto').available;
+  if(PTO.type!=='Unpaid' && ptoTotal()>avail){ toast(`Only ${avail}h ${PTO.type} available`); return; }
+  DB.ptoRequests.push({id:'pto'+Date.now(), emp:ME, days:days.map(ymd=>({ymd,hours:PTO.selected[ymd]})), type:PTO.type, note:PTO.note.trim(), status:'pending', by:me().name, at:new Date().toISOString()});
+  PTO.selected={}; PTO.note=''; toast('Time-off request sent to HR'); render(); }
+
+function viewTimeOff(){
+  if(!PTO.month) initPTO();
+  const e=me(); const [y,m]=PTO.month.split('-').map(Number);
+  const first=new Date(Date.UTC(y,m-1,1)); const dim=new Date(Date.UTC(y,m,0)).getUTCDate();
+  const startDow=(first.getUTCDay()+6)%7; const today=todayYmd(e);
+  let cells=''; for(let i=0;i<startDow;i++) cells+=`<div class="cal-pad"></div>`;
+  for(let d=1;d<=dim;d++){ const ymd=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const past=ymd<today; const sel=PTO.selected[ymd]!=null; const isToday=ymd===today;
+    cells+=`<button class="cal-day ${sel?'sel':''} ${past?'past':''} ${isToday?'today':''}" ${past?'disabled':`onclick="ptoToggle('${ymd}')"`}>${d}</button>`; }
+  const monthName=first.toLocaleDateString('en-US',{month:'long',year:'numeric',timeZone:'UTC'});
+  const sel=ptoDays(); const total=ptoTotal();
+  const mine=DB.ptoRequests.filter(r=>r.emp===ME).sort((a,b)=>new Date(b.at)-new Date(a.at));
+  const hrOpts=ymd=>[1,2,3,4,5,6,7,8].map(h=>`<option value="${h}" ${PTO.selected[ymd]===h?'selected':''}>${h}h</option>`).join('');
+  return `<div class="ph">Request time off</div><div class="psub">Tap the days you'd like off</div>
+    <div class="balgrid">${balCard('PTO','ti-beach',balance(e,'pto'))}${balCard('Sick','ti-vaccine',balance(e,'sick'))}</div>
+    <div class="card">
+      <div class="cal-hd"><button onclick="ptoMonthShift(-1)"><i class="ti ti-chevron-left"></i></button><b>${monthName}</b><button onclick="ptoMonthShift(1)"><i class="ti ti-chevron-right"></i></button></div>
+      <div class="cal-grid cal-wd">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div>${d}</div>`).join('')}</div>
+      <div class="cal-grid">${cells}</div>
+    </div>
+    ${sel.length?`<div class="card">
+      <div class="psub" style="margin:0 0 10px"><b>${total}h across ${sel.length} day${sel.length>1?'s':''}</b> — set hours per day</div>
+      <div class="daylist">${sel.map(ymd=>`<div class="dayhrs"><span>${mdl(ymd)}</span><select onchange="setDayHours('${ymd}',+this.value)">${hrOpts(ymd)}</select></div>`).join('')}</div>
+      <div class="field" style="margin-top:14px"><label>Type</label><select onchange="PTO.type=this.value">${['PTO','Sick','Unpaid'].map(t=>`<option ${PTO.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="field"><label>Note (optional)</label><input oninput="PTO.note=this.value" value="${(PTO.note||'').replace(/"/g,'&quot;')}" placeholder="e.g. Family vacation"></div>
+      <button class="bigbtn" onclick="submitPTO()"><i class="ti ti-send"></i> Request ${total}h off</button>
+    </div>`:`<div class="psub" style="text-align:center">Select one or more days above to submit a request.</div>`}
+    ${mine.length?`<div class="card"><h2><i class="ti ti-history"></i> My time-off requests</h2>
+      ${mine.map(r=>{const th=r.days.reduce((s,d)=>s+d.hours,0);return `<div class="reqcard"><div><b>${r.type} · ${th}h</b><div class="sub" style="font-size:12px;color:var(--muted)">${r.days.map(d=>`${mdl(d.ymd)} (${d.hours}h)`).join(', ')}${r.note?' · '+r.note:''}</div></div><span class="pill ${r.status==='pending'?'warn':r.status==='approved'?'ok':'neutral'}">${r.status}</span></div>`;}).join('')}</div>`:''}`;
+}
+
+bootstrapAuth();
+render();
+</script>
+</body>
+</html>
