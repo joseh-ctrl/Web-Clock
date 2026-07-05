@@ -286,9 +286,15 @@ const Live = (() => {
   }
   function schedule(ms){ pending=true; clearTimeout(timer); timer=setTimeout(run, ms||350); }
   return {
-    start(){
+    async start(){
       if(!Store.enabled || ch) return;
-      ch = Store.subscribe(TABLES, ()=>schedule(), status=>{ if(status==='SUBSCRIBED') schedule(); });
+      const sb=Store.client();
+      // Make sure the realtime socket authenticates as the signed-in user,
+      // otherwise it connects as anon and RLS hides every row's event.
+      try{ const { data:{ session } }=await sb.auth.getSession(); if(session && sb.realtime && sb.realtime.setAuth) sb.realtime.setAuth(session.access_token); }catch(e){ console.warn('[live] setAuth failed', e); }
+      ch = Store.subscribe(TABLES,
+        p=>{ console.log('[live] change', p.table, p.eventType); schedule(); },
+        status=>{ console.log('[live] status', status); if(status==='SUBSCRIBED') schedule(); });
       document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) schedule(); });
     },
     stop(){ if(ch){ Store.removeChannel(ch); ch=null; } clearTimeout(timer); pending=false; }
