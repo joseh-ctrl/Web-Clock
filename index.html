@@ -328,12 +328,14 @@ function buildTimecard(empId,weekKey){
   const wp=DB.punches.filter(p=>p.emp===empId && weekKeyFor(p.ts,e)===weekKey).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
   const byDay={}; wp.forEach(p=>{ const k=partsInTz(p.ts,e.tz).ymd; (byDay[k]=byDay[k]||[]).push(p); });
   const days=Object.keys(byDay).sort().map(ymd=>{
-    const ps=byDay[ymd]; let worked=0,mealMin=0,exceptions=[],mealViol=false,inT=null,mealT=null;
+    const ps=byDay[ymd]; let worked=0,mealMin=0,exceptions=[],mealViol=false,inT=null,mealT=null,breakT=null;
     ps.forEach(p=>{ const t=new Date(p.ts).getTime();
       if(p.type==='in') inT=t;
       else if(p.type==='out'){ if(inT){worked+=t-inT;inT=null;} else exceptions.push('Out with no In'); }
       else if(p.type==='meal_start'){ mealT=t; if(inT){worked+=t-inT;inT=null;} }
-      else if(p.type==='meal_end'){ if(mealT){mealMin+=(t-mealT)/60000; inT=t; mealT=null;} } });
+      else if(p.type==='meal_end'){ if(mealT){mealMin+=(t-mealT)/60000; inT=t; mealT=null;} }
+      else if(p.type==='break_start'){ breakT=t; if(inT){worked+=t-inT;inT=null;} }
+      else if(p.type==='break_end'){ if(breakT){ const dur=(t-breakT)/60000; worked+=Math.min(dur,12)*60000; inT=t; breakT=null; } } });
     if(inT) exceptions.push('Missing out punch');
     const hrs=worked/3600000;
     if(rule.mealLaw){ if(hrs>5&&mealMin===0){exceptions.push('No meal past 5th hour — premium');mealViol=true;}
@@ -619,7 +621,7 @@ function viewTimecard(){
       blocks+=`<div class="dayblk"><div class="dayhd"><b>${wd}</b><span class="h">${h2(shift)} hrs</span></div>
         ${segs.map(s=>`<div class="segrow" onclick="toggleE('${s.inId}')">
           <div class="chk ${segE(s.inId)?'on':''}"><i class="ti ti-check"></i></div>
-          <div class="io">${fmtTime(s.in,e)} → ${s.out?fmtTime(s.out,e):'<span style="color:var(--bad)">missing</span>'}${s.breakMin!=null?`<div class="b">${Math.round(s.breakMin)} min ${s.breakPaid?'paid break':'meal'}</div>`:''}</div>
+          <div class="io">${fmtTime(s.in,e)} → ${s.out?fmtTime(s.out,e):'<span style="color:var(--bad)">missing</span>'}${s.breakMin!=null?`<div class="b">${s.breakPaid?(s.breakMin<=12?`${Math.round(s.breakMin)} min paid break`:`${Math.round(s.breakMin)} min break — 12 paid, ${Math.round(s.breakMin-12)} unpaid`):`${Math.round(s.breakMin)} min meal`}</div>`:''}</div>
           <div class="sh">${s.out?h2(s.hrs):'—'}</div></div>`).join('')}
         ${d.exceptions.map(x=>`<div class="flag ${x.includes('premium')?'prem':''}"><i class="ti ti-${x.includes('premium')?'cash-banknote':'alert-triangle'}"></i> ${x}</div>`).join('')}
       </div>`;
