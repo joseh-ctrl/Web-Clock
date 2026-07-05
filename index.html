@@ -243,6 +243,8 @@ const Store = (() => {
     addPunchRequest(r) { return enabled ? sb.from('punch_requests').insert({id:r.id, employee_id:r.emp, week_key:r.weekKey, kind:r.kind, proposed_ymd:r.proposed.ymd, proposed_time:r.proposed.time, proposed_type:r.proposed.type, note:r.note, status:'pending', created_by:r.by}) : null; },
     addPtoRequest(r)   { return enabled ? sb.from('pto_requests').insert({id:r.id, employee_id:r.emp, type:r.type, days:r.days, note:r.note, status:'pending', created_by:r.by}) : null; },
     ackAlert(empId, key, by) { return enabled ? sb.from('ack_alerts').upsert({employee_id:empId, alert_key:key, by_name:by}) : null; },
+    subscribe(tables, onChange, onStatus) { if(!enabled) return null; const ch=sb.channel('wc-live'); tables.forEach(t=>ch.on('postgres_changes',{event:'*',schema:'public',table:t},onChange)); ch.subscribe(onStatus); return ch; },
+    removeChannel(ch) { if(enabled && ch) sb.removeChannel(ch); },
   };
 })();
 // Supabase builders are lazy; ensure every write actually executes.
@@ -254,6 +256,43 @@ const Store = (() => {
       if(b && typeof b.then==='function'){ return b.then(r=>{ if(r&&r.error){ console.error(name+' failed:',r.error); try{toast('⚠ Not saved — '+(r.error.message||''));}catch(e){} } return r; }); }
       return b; };
   });
+})();
+
+/* ============================================================
+   LIVE — Supabase realtime. When HR edits a punch, decides one of
+   my requests, or approves my card in the Timekeeping Center, that
+   change lands here instantly: we re-pull my snapshot via loadMine()
+   and re-render — no hard refresh. RLS scopes realtime to my own
+   rows, so I only get my own events. Debounced, deferred while I'm
+   typing, and re-synced on (re)subscribe / tab re-focus.
+============================================================ */
+const Live = (() => {
+  const TABLES = ['punches','punch_requests','pto_requests','seg_approvals','ack_alerts','employees'];
+  let ch=null, timer=null, pending=false, running=false;
+  const fieldFocused = () => { const el=document.activeElement; return !!el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName); };
+  async function sync(){
+    if(!ME) return;
+    const snap = await Store.loadMine();
+    if(snap){ DB.employees=snap.employees; DB.punches=snap.punches; DB.segApprovals=snap.segApprovals;
+              DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; }
+    render();
+  }
+  async function run(){
+    if(!pending || running) return;
+    if(fieldFocused()){ schedule(600); return; }
+    pending=false; running=true;
+    try{ await sync(); }catch(e){ console.error('live sync failed', e); }
+    finally{ running=false; if(pending) schedule(200); }
+  }
+  function schedule(ms){ pending=true; clearTimeout(timer); timer=setTimeout(run, ms||350); }
+  return {
+    start(){
+      if(!Store.enabled || ch) return;
+      ch = Store.subscribe(TABLES, ()=>schedule(), status=>{ if(status==='SUBSCRIBED') schedule(); });
+      document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) schedule(); });
+    },
+    stop(){ if(ch){ Store.removeChannel(ch); ch=null; } clearTimeout(timer); pending=false; }
+  };
 })();
 
 /* ============================================================
@@ -491,9 +530,10 @@ async function afterAuth(){
   if(snap){ DB.employees=snap.employees; DB.punches=snap.punches; DB.segApprovals=snap.segApprovals;
             DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; }
   ME=eid; LOGIN=null; SSO=false; TAB='clock'; render();
+  Live.start();
 }
 function backToId(){ LOGIN.step='id'; LOGIN.pin=''; LOGIN.err=''; LOGIN.busy=false; render(); }
-function signOut(){ if(Store.enabled) Store.signOut(); ME=null; LOGIN=null; if(clockTimer)clearInterval(clockTimer);
+function signOut(){ if(Store.enabled){ Live.stop(); Store.signOut(); } ME=null; LOGIN=null; if(clockTimer)clearInterval(clockTimer);
   if(SSO){ SSO=false; toast('Returning to HRIS…'); }
   render(); }
 function go(tab){ TAB=tab; render(); }
