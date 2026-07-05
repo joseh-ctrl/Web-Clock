@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>WS Display · Time Clock</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --navy:#0f1e3d; --navy2:#1b3a6b; --accent:#3b82f6; --bg:#eef1f7; --card:#fff; --line:#e5e9f2;
@@ -44,6 +45,8 @@ input,select{font-family:inherit;font-size:15px}
 .kbtn.go{background:linear-gradient(135deg,#3b82f6,#2563eb);border-color:transparent;box-shadow:0 6px 16px rgba(37,99,235,.45)}
 .login-back{width:100%;margin-top:14px;background:none;color:rgba(255,255,255,.7);font-size:12.5px;font-weight:600;padding:6px}
 .login-foot{position:absolute;bottom:16px;font-size:11px;opacity:.5;z-index:1;display:flex;align-items:center;gap:5px}
+.login-card.busy{opacity:.7;pointer-events:none}
+.login-note{margin-top:14px;font-size:11.5px;opacity:.55;text-align:center;color:#fff}
 
 /* Header */
 .hdr{background:var(--grad);color:#fff;padding:16px 18px;display:flex;align-items:center;gap:12px}
@@ -180,6 +183,68 @@ input,select{font-family:inherit;font-size:15px}
 
 <script>
 /* ============================================================
+   SUPABASE — shared backend. When SUPA_URL/KEY are set and the
+   client library loaded, Store.enabled is true and the app runs
+   live. Otherwise every Store.* call is a no-op and the app runs
+   on its in-memory seed (demo), so nothing breaks offline.
+============================================================ */
+const SUPA_URL      = "https://zozpomjvvrhjgqbazmrd.supabase.co";
+const SUPA_ANON_KEY = "sb_publishable_sKcs24iSLfda4g7gvXJcAw_HlmuLsdf";
+const Store = (() => {
+  let sb = null;
+  const enabled = !!(SUPA_URL && SUPA_ANON_KEY && window.supabase);
+  if (enabled) sb = window.supabase.createClient(SUPA_URL, SUPA_ANON_KEY);
+  const inEmp  = r => ({ id:r.id, name:r.name, empId:r.emp_id, loc:r.state, dept:r.dept, tz:r.tz,
+                         mgr:r.manager_id, role:r.role, rate:+r.rate||0, webPunch:r.web_punch,
+                         pto:{allot:+r.pto_allot||0, used:+r.pto_used||0},
+                         sick:{allot:+r.sick_allot||0, used:+r.sick_used||0} });
+  const inPunch= r => ({ id:r.id, emp:r.employee_id, ts:r.ts, type:r.type, source:r.source });
+  const inPto  = r => ({ id:r.id, emp:r.employee_id, type:r.type, days:r.days, note:r.note, status:r.status,
+                         by:r.created_by, at:r.created_at, decidedBy:r.decided_by, decidedAt:r.decided_at });
+  const inReq  = r => ({ id:r.id, emp:r.employee_id, weekKey:r.week_key, kind:r.kind,
+                         proposed:{ymd:r.proposed_ymd, time:r.proposed_time, type:r.proposed_type},
+                         note:r.note, status:r.status, by:r.created_by, at:r.created_at });
+  const get = (t, map) => sb.from(t).select('*').then(r => (r.data||[]).map(map));
+  return {
+    enabled, client: () => sb,
+    async pinLogin(empId, pin) {
+      if (!enabled) return { ok:false, error:'offline' };
+      const { data, error } = await sb.functions.invoke('pin-login', { body:{ empId, pin } });
+      if (error || !data || data.error) return { ok:false, error:(data && data.error) || 'Sign-in failed' };
+      const { error: vErr } = await sb.auth.verifyOtp({ email:data.email, token:data.otp, type:'email' });
+      if (vErr) return { ok:false, error:'Sign-in failed' };
+      return { ok:true };
+    },
+    async myEmployeeId() {
+      if (!enabled) return null;
+      const { data:{ user } } = await sb.auth.getUser();
+      if (!user) return null;
+      const { data } = await sb.from('employees').select('id').eq('auth_user_id', user.id).maybeSingle();
+      return data ? data.id : null;
+    },
+    async session() { return enabled ? (await sb.auth.getSession()).data.session : null; },
+    signOut() { return enabled ? sb.auth.signOut() : null; },
+    async loadMine() {
+      if (!enabled) return null;
+      const [employees, punches, segAppr, punchReqs, ptoReqs, ack] = await Promise.all([
+        get('employees', inEmp), get('punches', inPunch),
+        sb.from('seg_approvals').select('*'), get('punch_requests', inReq),
+        get('pto_requests', inPto), sb.from('ack_alerts').select('*'),
+      ]);
+      const segApprovals = {}; (segAppr.data||[]).forEach(r => segApprovals[`${r.in_punch_id}|${r.layer}`] = {by:r.by_name, at:r.at});
+      const ackAlerts = {}; (ack.data||[]).forEach(r => ackAlerts[r.alert_key] = {by:r.by_name, at:r.at});
+      return { employees, punches, segApprovals, requests:punchReqs, ptoRequests:ptoReqs, ackAlerts };
+    },
+    addPunch(p)        { return enabled ? sb.from('punches').insert({id:p.id, employee_id:p.emp, ts:p.ts, type:p.type, source:p.source||'web'}) : null; },
+    setSegE(inId, empId, by) { return enabled ? sb.from('seg_approvals').upsert({in_punch_id:inId, layer:'E', employee_id:empId, by_name:by}) : null; },
+    clearSegE(inId)    { return enabled ? sb.from('seg_approvals').delete().match({in_punch_id:inId, layer:'E'}) : null; },
+    addPunchRequest(r) { return enabled ? sb.from('punch_requests').insert({id:r.id, employee_id:r.emp, week_key:r.weekKey, kind:r.kind, proposed_ymd:r.proposed.ymd, proposed_time:r.proposed.time, proposed_type:r.proposed.type, note:r.note, status:'pending', created_by:r.by}) : null; },
+    addPtoRequest(r)   { return enabled ? sb.from('pto_requests').insert({id:r.id, employee_id:r.emp, type:r.type, days:r.days, note:r.note, status:'pending', created_by:r.by}) : null; },
+    ackAlert(empId, key, by) { return enabled ? sb.from('ack_alerts').upsert({employee_id:empId, alert_key:key, by_name:by}) : null; },
+  };
+})();
+
+/* ============================================================
    DATA — in-memory for the demo. In production these are the
    SAME Supabase tables the Timekeeping Center reads/writes, so
    punches, approvals, requests and alerts sync between apps.
@@ -286,10 +351,13 @@ function buildPeriod(empId,start,stop){ let reg=0,ot=0,dt=0,total=0; const weeks
 
 /* segment (E) approval */
 function segE(inId){ return !!DB.segApprovals[inId+'|E']; }
-function toggleE(inId){ const k=inId+'|E'; if(DB.segApprovals[k]) delete DB.segApprovals[k]; else DB.segApprovals[k]={by:me().name,at:new Date().toISOString()}; render(); }
+function toggleE(inId){ const k=inId+'|E';
+  if(DB.segApprovals[k]){ delete DB.segApprovals[k]; Store.clearSegE(inId); }
+  else { DB.segApprovals[k]={by:me().name,at:new Date().toISOString()}; Store.setSegE(inId, ME, me().name); }
+  render(); }
 function weekSegIds(empId,weekKey){ const ids=[]; buildTimecard(empId,weekKey).days.forEach(d=>daySegments(d.punches).forEach(s=>ids.push(s.inId))); return ids; }
 function approveAllE(){ const p=periodOf(me()); p.weeks=buildPeriod(me().id,p.start,p.stop).weeks;
-  p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>DB.segApprovals[id+'|E']={by:me().name,at:new Date().toISOString()}));
+  p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>{ DB.segApprovals[id+'|E']={by:me().name,at:new Date().toISOString()}; Store.setSegE(id, ME, me().name); }));
   toast('Timecard approved — thank you!'); render(); }
 function allApproved(){ const p=buildPeriod(me().id,periodOf(me()).start,periodOf(me()).stop); const ids=p.weeks.flatMap(wk=>weekSegIds(me().id,wk)); return ids.length>0 && ids.every(segE); }
 
@@ -305,7 +373,7 @@ function myAlerts(){
   }
   return out.map(a=>({...a,key:alertKey(a)})).filter(a=>!DB.ackAlerts[a.key]);
 }
-function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:new Date().toISOString()}; render(); }
+function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:new Date().toISOString()}; Store.ackAlert(ME, k, me().name); render(); }
 function mdl(ymd){ return ymdD(ymd).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
 
 /* punch actions */
@@ -319,7 +387,8 @@ function punch(type){
       const mins=(Date.now()-new Date(last.ts).getTime())/60000;
       if(mins<min){ toast(`${isMeal?'Meal':'Break'} minimum is ${min} min — ${Math.ceil(min-mins)} to go`); return; } }
   }
-  DB.punches.push({id:'p'+Date.now(), emp:ME, ts:new Date().toISOString(), type, source:'web'});
+  const np={id:'p'+Date.now(), emp:ME, ts:new Date().toISOString(), type, source:'web'};
+  DB.punches.push(np); Store.addPunch(np);
   toast(`Punched: ${labelType(type)}`); render(); }
 function labelType(t){ return {in:'Clock In',out:'Clock Out',meal_start:'Meal start',meal_end:'Meal end',break_start:'Break start',break_end:'Break end'}[t]||t; }
 
@@ -354,38 +423,45 @@ function bootstrapAuth(){
 
 /* ---------- keypad sign-in (ID + optional PIN) ---------- */
 let LOGIN=null, SSO=false;
-function initLogin(){ LOGIN={step:'id', id:'', pin:'', newpin:'', eid:null, empId:'', err:''}; }
+function initLogin(){ LOGIN={step:'id', id:'', pin:'', empId:'', err:'', busy:false}; }
 function empName(id){ const e=DB.employees.find(x=>x.id===id); return e?e.name:''; }
-function kp(d){ const L=LOGIN; L.err='';
+function kp(d){ const L=LOGIN; if(L.busy) return; L.err='';
   if(L.step==='id'){ if(L.id.length<6) L.id+=d; render(); return; }
   if(L.step==='pin'){ if(L.pin.length<4) L.pin+=d; if(L.pin.length===4) return checkPin(); return render(); }
-  if(L.step==='setpin'){ if(L.newpin.length<4) L.newpin+=d; if(L.newpin.length===4){ L.step='confirm'; L.pin=''; } return render(); }
-  if(L.step==='confirm'){ if(L.pin.length<4) L.pin+=d; if(L.pin.length===4) return confirmPin(); return render(); }
 }
-function kback(){ const L=LOGIN; L.err='';
-  if(L.step==='id') L.id=L.id.slice(0,-1);
-  else if(L.step==='setpin') L.newpin=L.newpin.slice(0,-1);
-  else L.pin=L.pin.slice(0,-1);
+function kback(){ const L=LOGIN; if(L.busy) return; L.err='';
+  if(L.step==='id') L.id=L.id.slice(0,-1); else L.pin=L.pin.slice(0,-1);
   render();
 }
-function kgo(){ const L=LOGIN;
+function kgo(){ const L=LOGIN; if(L.busy) return;
   if(L.step==='id') return submitId();
   if(L.step==='pin' && L.pin.length===4) return checkPin();
-  if(L.step==='confirm' && L.pin.length===4) return confirmPin();
 }
-function submitId(){ const L=LOGIN; const e=DB.employees.find(x=>x.empId===L.id);
-  if(!e){ L.err='ID not found'; L.id=''; return render(); }
-  L.eid=e.id; L.empId=e.empId;
-  if(DB.pins[e.empId]){ L.step='pin'; L.pin=''; } else { L.step='setpin'; L.newpin=''; L.pin=''; }
-  render();
+function submitId(){ const L=LOGIN; if(!L.id){ L.err='Enter your ID'; return render(); }
+  L.empId=L.id; L.step='pin'; L.pin=''; L.err=''; render();   // ID validated server-side with the PIN
 }
-function checkPin(){ const L=LOGIN; if(DB.pins[L.empId]===L.pin) return doSignIn(); L.err='Incorrect PIN'; L.pin=''; render(); }
-function confirmPin(){ const L=LOGIN; if(L.pin===L.newpin){ DB.pins[L.empId]=L.pin; toast('PIN created'); return doSignIn(); } L.err="PINs didn't match — try again"; L.step='setpin'; L.newpin=''; L.pin=''; render(); }
-function skipPin(){ doSignIn(); }
-function backToId(){ LOGIN.step='id'; LOGIN.pin=''; LOGIN.newpin=''; LOGIN.err=''; render(); }
-function doSignIn(){ ME=LOGIN.eid; LOGIN=null; TAB='clock'; render(); }
-function signOut(){ ME=null; LOGIN=null; if(clockTimer)clearInterval(clockTimer);
-  if(SSO){ SSO=false; toast('Returning to HRIS…'); /* TODO(Supabase): history.back() or redirect to HRIS */ }
+async function checkPin(){ const L=LOGIN;
+  if(!Store.enabled){   // offline demo fallback
+    const e=DB.employees.find(x=>x.empId===L.empId);
+    if(e && DB.pins[e.empId]===L.pin){ ME=e.id; LOGIN=null; TAB='clock'; return render(); }
+    L.err='Incorrect ID or PIN'; L.pin=''; return render();
+  }
+  L.busy=true; render();
+  const res = await Store.pinLogin(L.empId, L.pin);
+  if(!res.ok){ L.err = res.error==='offline' ? 'Offline' : 'Incorrect ID or PIN'; L.pin=''; L.busy=false; return render(); }
+  await afterAuth();
+}
+async function afterAuth(){
+  const eid = await Store.myEmployeeId();
+  if(!eid){ if(LOGIN){ LOGIN.err='No profile found — contact HR'; LOGIN.pin=''; LOGIN.busy=false; } return render(); }
+  const snap = await Store.loadMine();
+  if(snap){ DB.employees=snap.employees; DB.punches=snap.punches; DB.segApprovals=snap.segApprovals;
+            DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; }
+  ME=eid; LOGIN=null; SSO=false; TAB='clock'; render();
+}
+function backToId(){ LOGIN.step='id'; LOGIN.pin=''; LOGIN.err=''; LOGIN.busy=false; render(); }
+function signOut(){ if(Store.enabled) Store.signOut(); ME=null; LOGIN=null; if(clockTimer)clearInterval(clockTimer);
+  if(SSO){ SSO=false; toast('Returning to HRIS…'); }
   render(); }
 function go(tab){ TAB=tab; render(); }
 
@@ -428,9 +504,8 @@ function viewLogin(){
   const dots = len => `<div class="pin-dots">${[0,1,2,3].map(i=>`<span class="${i<len?'on':''}"></span>`).join('')}</div>`;
   let title,sub,display,back='';
   if(L.step==='id'){ title='Enter your ID'; sub='Type your employee ID number'; display=`<div class="id-display">${idBoxes}</div>`; }
-  else if(L.step==='pin'){ title=`Hi, ${empName(L.eid).split(' ')[0]}`; sub='Enter your 4-digit PIN'; display=dots(L.pin.length); back=`<button class="login-back" onclick="backToId()"><i class="ti ti-arrow-left"></i> Not you? Change ID</button>`; }
-  else if(L.step==='setpin'){ title='Create a PIN'; sub='Set a 4-digit PIN to keep your info private'; display=dots(L.newpin.length); back=`<button class="login-back" onclick="skipPin()">Skip for now</button>`; }
-  else { title='Confirm your PIN'; sub='Re-enter your new PIN'; display=dots(L.pin.length); }
+  else { title='Enter your PIN'; sub=L.busy?'Signing in…':'Enter your 4-digit PIN'; display=dots(L.pin.length);
+         back=`<button class="login-back" onclick="backToId()"><i class="ti ti-arrow-left"></i> Change ID</button>`; }
   return `<div class="login">
     <div class="login-glow"></div><div class="login-glow b"></div>
     <div class="login-top">
@@ -439,12 +514,13 @@ function viewLogin(){
       <div class="login-clock" id="loginTime">–</div>
       <div class="login-date" id="loginDate"></div>
     </div>
-    <div class="login-card">
+    <div class="login-card ${L.busy?'busy':''}">
       <div class="login-title">${title}</div><div class="login-sub">${sub}</div>
       ${display}
       <div class="login-err">${L.err?`<i class="ti ti-alert-circle"></i> ${L.err}`:''}</div>
       ${keypad()}
       ${back}
+      ${L.step==='pin'?`<div class="login-note">No PIN yet? Set one in the HR portal, then sign in here.</div>`:''}
     </div>
     <div class="login-foot"><i class="ti ti-lock"></i> Protected by your personal PIN</div>
   </div>`;
@@ -569,7 +645,8 @@ function viewRequests(){
 function fmt12(hm){ if(!hm||!hm.includes(':'))return hm; let[h,m]=hm.split(':').map(Number); const ap=h<12?'AM':'PM'; h=h%12||12; return `${h}:${String(m).padStart(2,'0')} ${ap}`; }
 function submitReq(){
   const e=me(); if(!REQ.note.trim()){ toast('Add a note'); return; }
-  DB.requests.push({id:'r'+Date.now(), emp:e.id, weekKey:weekKeyFor(REQ.ymd+'T12:00:00Z',e), kind:REQ.kind, proposed:{ymd:REQ.ymd,time:REQ.time,type:REQ.type}, note:REQ.note.trim(), status:'pending', by:e.name, at:new Date().toISOString()});
+  const req={id:'r'+Date.now(), emp:e.id, weekKey:weekKeyFor(REQ.ymd+'T12:00:00Z',e), kind:REQ.kind, proposed:{ymd:REQ.ymd,time:REQ.time,type:REQ.type}, note:REQ.note.trim(), status:'pending', by:e.name, at:new Date().toISOString()};
+  DB.requests.push(req); Store.addPunchRequest(req);
   REQ={kind:'add',ymd:todayYmd(e),time:'08:00',type:'in',note:''};
   toast('Request sent to HR'); render();
 }
@@ -595,7 +672,8 @@ function ptoTotal(){ return ptoDays().reduce((s,d)=>s+PTO.selected[d],0); }
 function submitPTO(){ const days=ptoDays(); if(!days.length){ toast('Select at least one day'); return; }
   const avail=balance(me(), PTO.type==='Sick'?'sick':'pto').available;
   if(PTO.type!=='Unpaid' && ptoTotal()>avail){ toast(`Only ${avail}h ${PTO.type} available`); return; }
-  DB.ptoRequests.push({id:'pto'+Date.now(), emp:ME, days:days.map(ymd=>({ymd,hours:PTO.selected[ymd]})), type:PTO.type, note:PTO.note.trim(), status:'pending', by:me().name, at:new Date().toISOString()});
+  const req={id:'pto'+Date.now(), emp:ME, days:days.map(ymd=>({ymd,hours:PTO.selected[ymd]})), type:PTO.type, note:PTO.note.trim(), status:'pending', by:me().name, at:new Date().toISOString()};
+  DB.ptoRequests.push(req); Store.addPtoRequest(req);
   PTO.selected={}; PTO.note=''; toast('Time-off request sent to HR'); render(); }
 
 function viewTimeOff(){
@@ -629,8 +707,17 @@ function viewTimeOff(){
       ${mine.map(r=>{const th=r.days.reduce((s,d)=>s+d.hours,0);return `<div class="reqcard"><div><b>${r.type} · ${th}h</b><div class="sub" style="font-size:12px;color:var(--muted)">${r.days.map(d=>`${mdl(d.ymd)} (${d.hours}h)`).join(', ')}${r.note?' · '+r.note:''}</div></div><span class="pill ${r.status==='pending'?'warn':r.status==='approved'?'ok':'neutral'}">${r.status}</span></div>`;}).join('')}</div>`:''}`;
 }
 
-bootstrapAuth();
-render();
+async function boot(){
+  if(Store.enabled){
+    const session = await Store.session();     // HRIS-tab SSO: session already exists
+    if(session){ await afterAuth(); return; }
+    render();                                   // no session -> show keypad
+    return;
+  }
+  bootstrapAuth();                              // offline demo (+ ?emp= deep link)
+  render();
+}
+boot();
 </script>
 </body>
 </html>
