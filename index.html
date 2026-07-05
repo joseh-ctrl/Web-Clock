@@ -197,7 +197,7 @@ const Store = (() => {
     auth: { persistSession: false, autoRefreshToken: true }, // kiosk: always ask for ID+PIN, leave nothing behind
   });
   const inEmp  = r => ({ id:r.id, name:r.name, empId:r.emp_id, loc:r.state, dept:r.dept, tz:r.tz,
-                         mgr:r.manager_id, role:r.role, rate:+r.rate||0, webPunch:r.web_punch,
+                         mgr:r.manager_id, role:r.role, rate:+r.rate||0, webPunch:r.web_punch, remote:r.remote,
                          pto:{allot:+r.pto_allot||0, used:+r.pto_used||0},
                          sick:{allot:+r.sick_allot||0, used:+r.sick_used||0} });
   const inPunch= r => ({ id:r.id, emp:r.employee_id, ts:r.ts, type:r.type, source:r.source });
@@ -261,13 +261,13 @@ const PAY_ANCHOR='2025-12-29';
 
 const DB={
   employees:[
-    {id:'e1', name:'Maria Sanchez',   empId:'735', loc:'CA', dept:'Production', tz:'America/Los_Angeles', webPunch:true,  pto:{allot:80,used:24},  sick:{allot:40,used:8}},
-    {id:'e2', name:'David Cruz',       empId:'781', loc:'CA', dept:'Warehouse',  tz:'America/Los_Angeles', webPunch:false, pto:{allot:80,used:40},  sick:{allot:40,used:16}},
-    {id:'e3', name:'Karen Miller',     empId:'651', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true,  pto:{allot:120,used:32}, sick:{allot:40,used:0}},
-    {id:'e4', name:'Adolfo Amaya',     empId:'037', loc:'CA', dept:'Production', tz:'America/Los_Angeles', webPunch:false, pto:{allot:80,used:8},   sick:{allot:40,used:24}},
-    {id:'e5', name:'Aileen Arguelles', empId:'112', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true,  pto:{allot:120,used:60}, sick:{allot:40,used:8}},
-    {id:'e6', name:'Angel Coronel',    empId:'065', loc:'CA', dept:'Warehouse',  tz:'America/Los_Angeles', webPunch:false, pto:{allot:80,used:16},  sick:{allot:40,used:0}},
-    {id:'e7', name:'Bertha Flores',    empId:'078', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true,  pto:{allot:120,used:48}, sick:{allot:40,used:16}}
+    {id:'e1', name:'Maria Sanchez',   empId:'735', loc:'CA', dept:'Production', tz:'America/Los_Angeles', webPunch:true, remote:true, pto:{allot:80,used:24},  sick:{allot:40,used:8}},
+    {id:'e2', name:'David Cruz',       empId:'781', loc:'CA', dept:'Warehouse',  tz:'America/Los_Angeles', webPunch:false, remote:true, pto:{allot:80,used:40},  sick:{allot:40,used:16}},
+    {id:'e3', name:'Karen Miller',     empId:'651', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true, remote:true, pto:{allot:120,used:32}, sick:{allot:40,used:0}},
+    {id:'e4', name:'Adolfo Amaya',     empId:'037', loc:'CA', dept:'Production', tz:'America/Los_Angeles', webPunch:false, remote:true, pto:{allot:80,used:8},   sick:{allot:40,used:24}},
+    {id:'e5', name:'Aileen Arguelles', empId:'112', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true, remote:false, pto:{allot:120,used:60}, sick:{allot:40,used:8}},
+    {id:'e6', name:'Angel Coronel',    empId:'065', loc:'CA', dept:'Warehouse',  tz:'America/Los_Angeles', webPunch:false, remote:true, pto:{allot:80,used:16},  sick:{allot:40,used:0}},
+    {id:'e7', name:'Bertha Flores',    empId:'078', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true, remote:true, pto:{allot:120,used:48}, sick:{allot:40,used:16}}
   ],
   punches:[],          // {id, emp, ts(UTC ISO), type, source}
   segApprovals:{},     // `${inPunchId}|E` -> {by,at}   (employee attestation)
@@ -391,6 +391,13 @@ function punch(type){
   }
   const np={id:'p'+Date.now(), emp:ME, ts:new Date().toISOString(), type, source:'web'};
   DB.punches.push(np); Store.addPunch(np);
+  const e=me();
+  if(e && e.remote===false){   // shared terminal: confirm, then return to keypad for the next person
+    toast(`${labelType(type)} recorded — thank you, ${e.name.split(' ')[0]}!`);
+    render();
+    setTimeout(()=>signOut(), 1700);
+    return;
+  }
   toast(`Punched: ${labelType(type)}`); render(); }
 function labelType(t){ return {in:'Clock In',out:'Clock Out',meal_start:'Meal start',meal_end:'Meal end',break_start:'Break start',break_end:'Break end'}[t]||t; }
 
