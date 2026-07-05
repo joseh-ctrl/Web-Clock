@@ -245,6 +245,16 @@ const Store = (() => {
     ackAlert(empId, key, by) { return enabled ? sb.from('ack_alerts').upsert({employee_id:empId, alert_key:key, by_name:by}) : null; },
   };
 })();
+// Supabase builders are lazy; ensure every write actually executes.
+(function autofire(){
+  if(!Store.enabled) return;
+  ['addPunch','setSegE','clearSegE','addPunchRequest','addPtoRequest','ackAlert'].forEach(name=>{
+    const orig=Store[name]; if(typeof orig!=='function') return;
+    Store[name]=function(...args){ const b=orig.apply(Store,args);
+      if(b && typeof b.then==='function'){ return b.then(r=>{ if(r&&r.error){ console.error(name+' failed:',r.error); try{toast('⚠ Not saved — '+(r.error.message||''));}catch(e){} } return r; }); }
+      return b; };
+  });
+})();
 
 /* ============================================================
    DATA — in-memory for the demo. In production these are the
