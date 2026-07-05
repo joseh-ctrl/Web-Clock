@@ -253,7 +253,7 @@ const Store = (() => {
   ['addPunch','setSegE','clearSegE','addPunchRequest','addPtoRequest','ackAlert'].forEach(name=>{
     const orig=Store[name]; if(typeof orig!=='function') return;
     Store[name]=function(...args){ const b=orig.apply(Store,args);
-      if(b && typeof b.then==='function'){ return b.then(r=>{ if(r&&r.error){ console.error(name+' failed:',r.error); try{toast('⚠ Not saved — '+(r.error.message||''));}catch(e){} } return r; }); }
+      if(b && typeof b.then==='function'){ return b.then(r=>{ if(r&&r.error){ console.error(name+' failed:',r.error); try{toast('⚠ Not saved — '+(r.error.message||''));}catch(e){} } else { if(window.__hrPing) window.__hrPing(); } return r; }); }
       return b; };
   });
 })();
@@ -268,8 +268,9 @@ const Store = (() => {
 ============================================================ */
 const Live = (() => {
   const TABLES = ['punches','punch_requests','pto_requests','seg_approvals','ack_alerts','employees'];
-  let ch=null, timer=null, pending=false, running=false;
+  let ch=null, bus=null, timer=null, pending=false, running=false;
   const fieldFocused = () => { const el=document.activeElement; return !!el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName); };
+  function ping(){ if(bus){ try{ bus.send({type:'broadcast', event:'changed', payload:{}}); }catch(e){} } }
   async function sync(){
     if(!ME) return;
     const snap = await Store.loadMine();
@@ -304,9 +305,16 @@ const Live = (() => {
       ch = Store.subscribe(TABLES,
         p=>{ console.log('[live] change', p.table, p.eventType); schedule(); },
         status=>{ console.log('[live] status', status); if(status==='SUBSCRIBED') schedule(); });
+      // Broadcast bus — RLS-proof cross-app signal. A punch here pings the
+      // shared channel; the Timekeeping Center re-syncs through its own
+      // authenticated query, so no data rides on the wire.
+      bus = sb.channel('hr-sync', { config:{ broadcast:{ self:false } } });
+      bus.on('broadcast', { event:'changed' }, ()=>{ console.log('[live] ping'); schedule(); });
+      bus.subscribe();
+      window.__hrPing = ping;
       document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) schedule(); });
     },
-    stop(){ if(ch){ Store.removeChannel(ch); ch=null; } clearTimeout(timer); pending=false; }
+    stop(){ if(ch){ Store.removeChannel(ch); ch=null; } if(bus){ Store.removeChannel(bus); bus=null; } window.__hrPing=null; clearTimeout(timer); pending=false; }
   };
 })();
 
