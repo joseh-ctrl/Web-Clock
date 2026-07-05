@@ -238,7 +238,7 @@ const Store = (() => {
       return { employees, punches, segApprovals, requests:punchReqs, ptoRequests:ptoReqs, ackAlerts };
     },
     addPunch(p)        { return enabled ? sb.from('punches').insert({id:p.id, employee_id:p.emp, ts:p.ts, type:p.type, source:p.source||'web'}) : null; },
-    setSegE(inId, empId, by) { return enabled ? sb.from('seg_approvals').upsert({in_punch_id:inId, layer:'E', employee_id:empId, by_name:by}) : null; },
+    setSegE(inId, empId, by) { return enabled ? sb.from('seg_approvals').upsert({in_punch_id:inId, layer:'E', employee_id:empId, by_name:by}, {onConflict:'in_punch_id,layer'}) : null; },
     clearSegE(inId)    { return enabled ? sb.from('seg_approvals').delete().match({in_punch_id:inId, layer:'E'}) : null; },
     addPunchRequest(r) { return enabled ? sb.from('punch_requests').insert({id:r.id, employee_id:r.emp, week_key:r.weekKey, kind:r.kind, proposed_ymd:r.proposed.ymd, proposed_time:r.proposed.time, proposed_type:r.proposed.type, note:r.note, status:'pending', created_by:r.by}) : null; },
     addPtoRequest(r)   { return enabled ? sb.from('pto_requests').insert({id:r.id, employee_id:r.emp, type:r.type, days:r.days, note:r.note, status:'pending', created_by:r.by}) : null; },
@@ -353,13 +353,14 @@ function buildPeriod(empId,start,stop){ let reg=0,ot=0,dt=0,total=0; const weeks
 
 /* segment (E) approval */
 function segE(inId){ return !!DB.segApprovals[inId+'|E']; }
+function chk(p,label){ if(p&&p.then) p.then(r=>{ if(r&&r.error){ console.error(label+' failed:',r.error); toast('⚠ '+label+' not saved — '+(r.error.message||'try again')); } }); return p; }
 function toggleE(inId){ const k=inId+'|E';
-  if(DB.segApprovals[k]){ delete DB.segApprovals[k]; Store.clearSegE(inId); }
-  else { DB.segApprovals[k]={by:me().name,at:new Date().toISOString()}; Store.setSegE(inId, ME, me().name); }
+  if(DB.segApprovals[k]){ delete DB.segApprovals[k]; chk(Store.clearSegE(inId),'Unapprove'); }
+  else { DB.segApprovals[k]={by:me().name,at:new Date().toISOString()}; chk(Store.setSegE(inId, ME, me().name),'Approve'); }
   render(); }
 function weekSegIds(empId,weekKey){ const ids=[]; buildTimecard(empId,weekKey).days.forEach(d=>daySegments(d.punches).forEach(s=>ids.push(s.inId))); return ids; }
 function approveAllE(){ const p=periodOf(me()); p.weeks=buildPeriod(me().id,p.start,p.stop).weeks;
-  p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>{ DB.segApprovals[id+'|E']={by:me().name,at:new Date().toISOString()}; Store.setSegE(id, ME, me().name); }));
+  p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>{ DB.segApprovals[id+'|E']={by:me().name,at:new Date().toISOString()}; chk(Store.setSegE(id, ME, me().name),'Approve'); }));
   toast('Timecard approved — thank you!'); render(); }
 function allApproved(){ const p=buildPeriod(me().id,periodOf(me()).start,periodOf(me()).stop); const ids=p.weeks.flatMap(wk=>weekSegIds(me().id,wk)); return ids.length>0 && ids.every(segE); }
 
