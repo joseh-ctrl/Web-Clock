@@ -289,9 +289,18 @@ const Live = (() => {
     async start(){
       if(!Store.enabled || ch) return;
       const sb=Store.client();
-      // Make sure the realtime socket authenticates as the signed-in user,
-      // otherwise it connects as anon and RLS hides every row's event.
-      try{ const { data:{ session } }=await sb.auth.getSession(); if(session && sb.realtime && sb.realtime.setAuth) sb.realtime.setAuth(session.access_token); }catch(e){ console.warn('[live] setAuth failed', e); }
+      // Feed the signed-in user's JWT to the realtime socket. Without it the
+      // socket connects as anon and RLS silently drops every row event. Re-feed
+      // on every auth change so the stream survives token refresh.
+      async function pushAuth(){
+        try{ const { data:{ session } }=await sb.auth.getSession();
+          if(session && sb.realtime && sb.realtime.setAuth){ await sb.realtime.setAuth(session.access_token); return true; } }
+        catch(e){ console.warn('[live] setAuth failed', e); }
+        return false;
+      }
+      const authed = await pushAuth();
+      console.log('[live] starting — authed socket:', authed);
+      sb.auth.onAuthStateChange((_e, s)=>{ if(s && sb.realtime && sb.realtime.setAuth) sb.realtime.setAuth(s.access_token); });
       ch = Store.subscribe(TABLES,
         p=>{ console.log('[live] change', p.table, p.eventType); schedule(); },
         status=>{ console.log('[live] status', status); if(status==='SUBSCRIBED') schedule(); });
