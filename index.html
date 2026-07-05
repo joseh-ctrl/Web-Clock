@@ -390,7 +390,9 @@ function punch(type){
       if(mins<min){ toast(`${isMeal?'Meal':'Break'} minimum is ${min} min — ${Math.ceil(min-mins)} to go`); return; } }
   }
   const np={id:'p'+Date.now(), emp:ME, ts:new Date().toISOString(), type, source:'web'};
-  DB.punches.push(np); Store.addPunch(np);
+  DB.punches.push(np);
+  const r=Store.addPunch(np);
+  if(r && r.then) r.then(res=>{ if(res && res.error){ console.error('Punch save failed:', res.error); toast('⚠ Not saved — '+(res.error.message||'try again')); } });
   const e=me();
   if(e && e.remote===false){   // shared terminal: confirm, then return to keypad for the next person
     toast(`${labelType(type)} recorded — thank you, ${e.name.split(' ')[0]}!`);
