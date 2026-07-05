@@ -355,9 +355,18 @@ function buildTimecard(empId,weekKey){
 function daySegments(punches){
   const segs=[]; let seg=null,pend=null;
   [...punches].sort((a,b)=>new Date(a.ts)-new Date(b.ts)).forEach(p=>{ const t=new Date(p.ts).getTime();
-    if(p.type==='in'||p.type==='meal_end'||p.type==='break_end'){ if(pend&&segs.length){const pr=segs[segs.length-1];pr.breakMin=(t-pend.t)/60000;pr.breakPaid=pend.paid;} pend=null; seg={inId:p.id,in:p.ts,out:null,hrs:0,breakMin:null,breakPaid:false}; }
-    else if(p.type==='out'||p.type==='meal_start'||p.type==='break_start'){ if(seg){seg.out=p.ts;seg.hrs=(t-new Date(seg.in).getTime())/3600000;segs.push(seg);seg=null;} pend=p.type==='meal_start'?{t,paid:false}:p.type==='break_start'?{t,paid:true}:null; } });
-  if(seg) segs.push(seg); return segs;
+    if(p.type==='in'||p.type==='meal_end'||p.type==='break_end'){
+      if(seg){ seg.issue='Missing out punch'; segs.push(seg); seg=null; }
+      if(pend&&segs.length){const pr=segs[segs.length-1];pr.breakMin=(t-pend.t)/60000;pr.breakPaid=pend.paid;}
+      const orphanResume = !pend && (p.type==='meal_end'||p.type==='break_end');
+      pend=null; seg={inId:p.id,in:p.ts,out:null,hrs:0,breakMin:null,breakPaid:false};
+      if(orphanResume) seg.issue=`Unmatched ${labelType(p.type)}`;
+    }
+    else if(p.type==='out'||p.type==='meal_start'||p.type==='break_start'){
+      if(seg){seg.out=p.ts;seg.hrs=(t-new Date(seg.in).getTime())/3600000;segs.push(seg);seg=null;}
+      else { segs.push({inId:p.id,in:p.ts,out:p.ts,hrs:0,breakMin:null,breakPaid:false,issue:`Unmatched ${labelType(p.type)}`}); }
+      pend=p.type==='meal_start'?{t,paid:false}:p.type==='break_start'?{t,paid:true}:null; } });
+  if(seg){ seg.issue=seg.issue||'Missing out punch'; segs.push(seg); } return segs;
 }
 function periodOf(e){ const t=todayYmd(e); return {start:payPeriodStart(t), stop:ymdAdd(payPeriodStart(t),13)}; }
 function buildPeriod(empId,start,stop){ let reg=0,ot=0,dt=0,total=0; const weeks=[]; let cur=weekStartOf(start);
@@ -621,7 +630,7 @@ function viewTimecard(){
       blocks+=`<div class="dayblk"><div class="dayhd"><b>${wd}</b><span class="h">${h2(shift)} hrs</span></div>
         ${segs.map(s=>`<div class="segrow" onclick="toggleE('${s.inId}')">
           <div class="chk ${segE(s.inId)?'on':''}"><i class="ti ti-check"></i></div>
-          <div class="io">${fmtTime(s.in,e)} → ${s.out?fmtTime(s.out,e):'<span style="color:var(--bad)">missing</span>'}${s.breakMin!=null?`<div class="b">${s.breakPaid?(s.breakMin<=12?`${Math.round(s.breakMin)} min paid break`:`${Math.round(s.breakMin)} min break — 12 paid, ${Math.round(s.breakMin-12)} unpaid`):`${Math.round(s.breakMin)} min meal`}</div>`:''}</div>
+          <div class="io">${s.issue&&s.out===s.in?`<span style="color:var(--bad)"><i class="ti ti-alert-triangle"></i> ${s.issue}</span>`:`${fmtTime(s.in,e)} → ${s.out?fmtTime(s.out,e):'<span style="color:var(--bad)">missing</span>'}`}${s.issue&&s.out!==s.in?` <i class="ti ti-alert-triangle" style="color:var(--bad)" title="${s.issue}"></i>`:''}${s.breakMin!=null?`<div class="b">${s.breakPaid?(s.breakMin<=12?`${Math.round(s.breakMin)} min paid break`:`${Math.round(s.breakMin)} min break — 12 paid, ${Math.round(s.breakMin-12)} unpaid`):`${Math.round(s.breakMin)} min meal`}</div>`:''}</div>
           <div class="sh">${s.out?h2(s.hrs):'—'}</div></div>`).join('')}
         ${d.exceptions.map(x=>`<div class="flag ${x.includes('premium')?'prem':''}"><i class="ti ti-${x.includes('premium')?'cash-banknote':'alert-triangle'}"></i> ${x}</div>`).join('')}
       </div>`;
