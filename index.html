@@ -193,7 +193,9 @@ const SUPA_ANON_KEY = "sb_publishable_sKcs24iSLfda4g7gvXJcAw_HlmuLsdf";
 const Store = (() => {
   let sb = null;
   const enabled = !!(SUPA_URL && SUPA_ANON_KEY && window.supabase);
-  if (enabled) sb = window.supabase.createClient(SUPA_URL, SUPA_ANON_KEY);
+  if (enabled) sb = window.supabase.createClient(SUPA_URL, SUPA_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: true }, // kiosk: always ask for ID+PIN, leave nothing behind
+  });
   const inEmp  = r => ({ id:r.id, name:r.name, empId:r.emp_id, loc:r.state, dept:r.dept, tz:r.tz,
                          mgr:r.manager_id, role:r.role, rate:+r.rate||0, webPunch:r.web_punch,
                          pto:{allot:+r.pto_allot||0, used:+r.pto_used||0},
