@@ -376,7 +376,7 @@ function myAlerts(){
   }
   return out.map(a=>({...a,key:alertKey(a)})).filter(a=>!DB.ackAlerts[a.key]);
 }
-function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:new Date().toISOString()}; Store.ackAlert(ME, k, me().name); render(); }
+function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:new Date().toISOString()}; chk(Store.ackAlert(ME, k, me().name),'Acknowledge'); render(); }
 function mdl(ymd){ return ymdD(ymd).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
 
 /* punch actions */
@@ -658,7 +658,7 @@ function fmt12(hm){ if(!hm||!hm.includes(':'))return hm; let[h,m]=hm.split(':').
 function submitReq(){
   const e=me(); if(!REQ.note.trim()){ toast('Add a note'); return; }
   const req={id:'r'+Date.now(), emp:e.id, weekKey:weekKeyFor(REQ.ymd+'T12:00:00Z',e), kind:REQ.kind, proposed:{ymd:REQ.ymd,time:REQ.time,type:REQ.type}, note:REQ.note.trim(), status:'pending', by:e.name, at:new Date().toISOString()};
-  DB.requests.push(req); Store.addPunchRequest(req);
+  DB.requests.push(req); chk(Store.addPunchRequest(req),'Request');
   REQ={kind:'add',ymd:todayYmd(e),time:'08:00',type:'in',note:''};
   toast('Request sent to HR'); render();
 }
@@ -685,7 +685,7 @@ function submitPTO(){ const days=ptoDays(); if(!days.length){ toast('Select at l
   const avail=balance(me(), PTO.type==='Sick'?'sick':'pto').available;
   if(PTO.type!=='Unpaid' && ptoTotal()>avail){ toast(`Only ${avail}h ${PTO.type} available`); return; }
   const req={id:'pto'+Date.now(), emp:ME, days:days.map(ymd=>({ymd,hours:PTO.selected[ymd]})), type:PTO.type, note:PTO.note.trim(), status:'pending', by:me().name, at:new Date().toISOString()};
-  DB.ptoRequests.push(req); Store.addPtoRequest(req);
+  DB.ptoRequests.push(req); chk(Store.addPtoRequest(req),'Time-off request');
   PTO.selected={}; PTO.note=''; toast('Time-off request sent to HR'); render(); }
 
 function viewTimeOff(){
