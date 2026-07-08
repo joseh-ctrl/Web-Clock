@@ -59,7 +59,6 @@ input,select{font-family:inherit;font-size:15px}
 .hdr .langtog{margin-left:auto;background:rgba(255,255,255,.16)}
 .hdr .langtog button{color:rgba(255,255,255,.7)}
 .hdr .langtog button.on{background:rgba(255,255,255,.95);color:var(--navy)}
-.hdr .kioskflag{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:rgba(255,255,255,.16);color:#fff;padding:5px 9px;border-radius:7px;margin-left:8px}
 .login .langtog{position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);z-index:6}
 .login .langtog button{color:rgba(255,255,255,.72)}
 .login .langtog button.on{background:rgba(255,255,255,.92);color:#12274d}
@@ -200,6 +199,26 @@ input,select{font-family:inherit;font-size:15px}
 ============================================================ */
 const SUPA_URL      = "https://zozpomjvvrhjgqbazmrd.supabase.co";
 const SUPA_ANON_KEY = "sb_publishable_sKcs24iSLfda4g7gvXJcAw_HlmuLsdf";
+
+/* ---- server-time anchoring ----
+   Punches and the on-screen clock use REAL (server) time, not the tablet's clock, so a drifted
+   or tampered device clock can't produce wrong punches. TIME_OFFSET is the correction (ms) applied
+   to the device clock; it stays 0 (device time) until the first successful sync, and on any failure. */
+let TIME_OFFSET = 0;
+function nowMs(){ return Date.now() + TIME_OFFSET; }
+function nowDate(){ return new Date(nowMs()); }
+async function syncServerTime(){
+  try{
+    const t0 = Date.now();
+    const res = await fetch(`${SUPA_URL}/rest/v1/rpc/server_now`, {
+      method:'POST', headers:{ apikey:SUPA_ANON_KEY, 'Content-Type':'application/json' }, body:'{}', cache:'no-store' });
+    const t1 = Date.now();
+    let serverMs = null;
+    if(res.ok){ try{ const b=await res.json(); const ms=new Date(b).getTime(); if(ms) serverMs=ms; }catch(_){} }
+    if(!serverMs){ const hdr=res.headers.get('date'); if(hdr){ const ms=new Date(hdr).getTime(); if(ms) serverMs=ms; } }
+    if(serverMs){ TIME_OFFSET = serverMs - (t0 + (t1-t0)/2); }   // align to the request midpoint (accounts for latency)
+  }catch(_){ /* offline → keep device time */ }
+}
 const Store = (() => {
   let sb = null;
   const enabled = !!(SUPA_URL && SUPA_ANON_KEY && window.supabase);
@@ -380,7 +399,7 @@ const DB={
 
 /* seed a few days of punches for the current pay period (as if from the clock) */
 (function seed(){
-  const base=new Date(); base.setHours(0,0,0,0); const day=86400000;
+  const base=nowDate(); base.setHours(0,0,0,0); const day=86400000;
   function pk(emp,off,h,m,type,src){ const d=new Date(base.getTime()-off*day); d.setHours(h,m,0,0);
     return {id:'p'+Math.random().toString(36).slice(2,8), emp, ts:d.toISOString(), type, source:src||'web'}; }
   // Maria (e1, web): Mon-Wed clean, Thu short meal, Fri missing out
@@ -408,7 +427,7 @@ function wallToUtc(ymd,hm,tz){ const [Y,M,D]=ymd.split('-').map(Number); const [
 function ymdD(y){return new Date(y+'T00:00:00Z');}
 function ymdAdd(y,n){return new Date(ymdD(y).getTime()+n*86400000).toISOString().slice(0,10);}
 function weekStartOf(y){return ymdAdd(y,-((ymdD(y).getUTCDay()+6)%7));}
-function todayYmd(e){return partsInTz(new Date().toISOString(),e.tz).ymd;}
+function todayYmd(e){return partsInTz(nowDate().toISOString(),e.tz).ymd;}
 function weekKeyFor(iso,e){ const p=partsInTz(iso,e.tz); const local=new Date(p.ymd+'T00:00:00Z'); const dow=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(p.wd); const mon=new Date(local.getTime()-((dow+6)%7)*86400000); return mon.toISOString().slice(0,10); }
 function weekLabel(key){ const s=new Date(key+'T00:00:00Z'), e=new Date(s.getTime()+6*86400000); const f=d=>d.toLocaleDateString(LOCALE(),{month:'short',day:'numeric',timeZone:'UTC'}); return `${f(s)} – ${f(e)}`; }
 function payPeriodStart(ymd){ const ms=Date.parse(ymd+'T00:00:00Z')-Date.parse(PAY_ANCHOR+'T00:00:00Z'); const n=Math.floor(ms/(14*86400000)); return new Date(Date.parse(PAY_ANCHOR+'T00:00:00Z')+n*14*86400000).toISOString().slice(0,10); }
@@ -468,11 +487,11 @@ function segE(inId){ return !!DB.segApprovals[inId+'|E']; }
 function chk(p,label){ if(p&&p.then) p.then(r=>{ if(r&&r.error){ console.error(label+' failed:',r.error); toast('⚠ '+label+' not saved — '+(r.error.message||'try again')); } }); return p; }
 function toggleE(inId){ const k=inId+'|E';
   if(DB.segApprovals[k]){ delete DB.segApprovals[k]; chk(Store.clearSegE(inId),'Unapprove'); }
-  else { DB.segApprovals[k]={by:me().name,at:new Date().toISOString()}; chk(Store.setSegE(inId, ME, me().name),'Approve'); }
+  else { DB.segApprovals[k]={by:me().name,at:nowDate().toISOString()}; chk(Store.setSegE(inId, ME, me().name),'Approve'); }
   render(); }
 function weekSegIds(empId,weekKey){ const ids=[]; buildTimecard(empId,weekKey).days.forEach(d=>daySegments(d.punches).forEach(s=>ids.push(s.inId))); return ids; }
 function approveAllE(){ const p=periodOf(me()); p.weeks=buildPeriod(me().id,p.start,p.stop).weeks;
-  p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>{ DB.segApprovals[id+'|E']={by:me().name,at:new Date().toISOString()}; chk(Store.setSegE(id, ME, me().name),'Approve'); }));
+  p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>{ DB.segApprovals[id+'|E']={by:me().name,at:nowDate().toISOString()}; chk(Store.setSegE(id, ME, me().name),'Approve'); }));
   toast(t('toast_tc_approved')); render(); }
 function allApproved(){ const p=buildPeriod(me().id,periodOf(me()).start,periodOf(me()).stop); const ids=p.weeks.flatMap(wk=>weekSegIds(me().id,wk)); return ids.length>0 && ids.every(segE); }
 
@@ -488,16 +507,13 @@ function myAlerts(){
   }
   return out.map(a=>({...a,key:alertKey(a)})).filter(a=>!DB.ackAlerts[a.key]);
 }
-function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:new Date().toISOString()}; chk(Store.ackAlert(ME, k, me().name),'Acknowledge'); render(); }
+function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:nowDate().toISOString()}; chk(Store.ackAlert(ME, k, me().name),'Acknowledge'); render(); }
 function mdl(ymd){ return ymdD(ymd).toLocaleDateString(LOCALE(),{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
 
 /* punch actions */
 function empStatus(empId){ const e=me(); const last=DB.punches.filter(p=>p.emp===empId).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
   if(!last) return 'out'; if(['in','meal_end','break_end'].includes(last.type)) return 'in'; if(last.type==='meal_start') return 'meal'; if(last.type==='break_start') return 'break'; return 'out'; }
-/* geofence + photo helpers — RETAINED but currently DORMANT. On-site employees are now
-   kiosk-only (see punch()), so nothing calls the geofence today. Kept in place, along with
-   the punch_locations table and its WS Time config screen, so a future "phone allowed only
-   when on-site" mode can be wired back in without rebuilding it. */
+/* geofence + photo — on-site punch integrity (remote employees are unaffected) */
 function geoDistM(lat1,lng1,lat2,lng2){ const R=6371000,toR=d=>d*Math.PI/180;
   const dLat=toR(lat2-lat1),dLng=toR(lng2-lng1);
   const a=Math.sin(dLat/2)**2+Math.cos(toR(lat1))*Math.cos(toR(lat2))*Math.sin(dLng/2)**2;
@@ -532,26 +548,28 @@ async function punch(type){
   if(type==='meal_end'||type==='break_end'){
     const last=DB.punches.filter(p=>p.emp===ME).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
     if(last){ const isMeal=type==='meal_end'; const min=isMeal?30:10;
-      const mins=(Date.now()-new Date(last.ts).getTime())/60000;
+      const mins=(nowMs()-new Date(last.ts).getTime())/60000;
       if(mins<min){ toast(t(isMeal?'toast_meal_min':'toast_break_min',{min:min,x:Math.ceil(min-mins)})); return; } }
   }
   const e=me(); const onsite = !!(e && e.remote===false);
   const pid='p'+Date.now(); let lat=null, lng=null, photoUrl=null;
 
   if(onsite){
-    // On-site employees must punch on the fixed time-clock tablet (kiosk). A personal phone
-    // is never a valid punch device for them, in or out of the building. (Safety net — the
-    // clock screen also hides the buttons and shows a notice on non-kiosk devices.)
-    if(!isKiosk()){ toast(t('toast_kiosk_only')); return; }
-    // On a kiosk the tablet's physical presence IS the location control, so there's no GPS
-    // check; just capture a photo for the record (best-effort — never blocks the punch).
     PUNCHING=true;
+    const sites=activeSites();
+    if(sites.length){                                       // geofence only if HR has set up sites
+      toast(t('toast_checkloc'));
+      const loc=await getPosition();
+      if(!loc){ PUNCHING=false; toast(t('toast_turnloc')); return; }
+      if(!withinAnySite(loc.lat,loc.lng)){ PUNCHING=false; toast(t('toast_notsite')); return; }
+      lat=+loc.lat.toFixed(6); lng=+loc.lng.toFixed(6);
+    }
     toast(t('toast_photo'));
-    photoUrl = await capturePunchPhoto(e.empId, pid);
+    photoUrl = await capturePunchPhoto(e.empId, pid);       // best-effort; null if camera unavailable
     PUNCHING=false;
   }
 
-  const np={id:pid, emp:ME, ts:new Date().toISOString(), type, source:'web', photoUrl, lat, lng};
+  const np={id:pid, emp:ME, ts:nowDate().toISOString(), type, source:'web', photoUrl, lat, lng};
   DB.punches.push(np);
   const r=Store.addPunch(np);
   if(r && r.then) r.then(res=>{ if(res && res.error){ console.error('Punch save failed:', res.error); toast('⚠ Not saved — '+(res.error.message||'try again')); } });
@@ -662,7 +680,7 @@ function go(tab){ TAB=tab; render(); }
 
 function startLoginClock(){ if(clockTimer)clearInterval(clockTimer);
   const t=()=>{ const el=document.getElementById('loginTime'); if(!el){clearInterval(clockTimer);return;}
-    const now=new Date(); el.textContent=now.toLocaleTimeString(LOCALE(),{hour:'numeric',minute:'2-digit'});
+    const now=nowDate(); el.textContent=now.toLocaleTimeString(LOCALE(),{hour:'numeric',minute:'2-digit'});
     const d=document.getElementById('loginDate'); if(d) d.textContent=now.toLocaleDateString(LOCALE(),{weekday:'long',month:'long',day:'numeric'}); };
   t(); clockTimer=setInterval(t,1000);
 }
@@ -675,19 +693,6 @@ function startLoginClock(){ if(clockTimer)clearInterval(clockTimer);
 ============================================================ */
 let LANG = (()=>{ try{ return localStorage.getItem('wc_lang')==='es'?'es':'en'; }catch(e){ return 'en'; } })();
 function setLang(l){ LANG=(l==='es'?'es':'en'); try{localStorage.setItem('wc_lang',LANG);}catch(e){} render(); }
-
-/* Kiosk mode — a fixed, bolted-down tablet IS its own location control, so it skips the
-   GPS geofence (indoor tablet GPS is unreliable and would false-block punches) while still
-   capturing the punch photo. Personal phones never carry this flag, so they stay geofenced.
-   Set up once per tablet by opening the web clock URL with ?kiosk=1 ; undo with ?kiosk=0.
-   The flag persists in localStorage on that device, so it survives reloads and re-opens. */
-let KIOSK = (()=>{ try{ return localStorage.getItem('wc_kiosk')==='1'; }catch(e){ return false; } })();
-(function(){ try{
-  const k=new URLSearchParams(location.search).get('kiosk');
-  if(k==='1'){ localStorage.setItem('wc_kiosk','1'); KIOSK=true; }
-  else if(k==='0'){ localStorage.removeItem('wc_kiosk'); KIOSK=false; }
-}catch(e){} })();
-function isKiosk(){ return KIOSK; }
 function LOCALE(){ return LANG==='es'?'es':'en-US'; }
 function t(key,vars){ let s=(I18N[LANG]&&I18N[LANG][key]); if(s==null) s=I18N.en[key]; if(s==null) s=key;
   if(vars) Object.keys(vars).forEach(k=>{ s=s.split('{'+k+'}').join(vars[k]); }); return s; }
@@ -705,8 +710,6 @@ const I18N={
   b_in:"Clock In", b_out:"Clock Out", b_meal_start:"Start Meal", b_meal_end:"End Meal", b_break_start:"Start Break", b_break_end:"End Break",
   bio_title:"You clock in at the biometric station.",
   bio_sub:"Web punching isn't enabled for your profile — your punches appear below automatically.",
-  kiosk_only_title:"Punch in at the time-clock tablet",
-  kiosk_only_sub:"On-site employees clock in and out on the shared tablet at the warehouse.",
   today_punches:"Today's punches", no_punches:"No punches yet today.", src_web:"web", src_clock:"clock",
   lt_in:"Clock In", lt_out:"Clock Out", lt_meal_start:"Meal start", lt_meal_end:"Meal end", lt_break_start:"Break start", lt_break_end:"Break end",
   gate_meal_min:"Meal minimum — you can return in {t}", gate_break_min:"Break minimum — you can return in {t}",
@@ -737,7 +740,6 @@ const I18N={
   toast_meal_min:"Meal minimum is {min} min — {x} to go", toast_break_min:"Break minimum is {min} min — {x} to go",
   toast_checkloc:"Checking your location…", toast_turnloc:"Turn on location to clock in at a work site",
   toast_notsite:"You're not at a WS Display work site — clock in from the warehouse", toast_photo:"Taking your photo…",
-  toast_kiosk_only:"Please use the time-clock tablet to punch.",
   toast_recorded:"{label} recorded — thank you, {name}!", toast_punched:"Punched: {label}",
   toast_tc_approved:"Timecard approved — thank you!", toast_returning:"Returning to HRIS…",
   pill_pending:"pending", pill_applied:"applied", pill_approved:"approved", pill_denied:"denied", pill_cancelled:"cancelled",
@@ -756,8 +758,6 @@ const I18N={
   b_in:"Entrada", b_out:"Salida", b_meal_start:"Iniciar comida", b_meal_end:"Terminar comida", b_break_start:"Iniciar descanso", b_break_end:"Terminar descanso",
   bio_title:"Usted registra en la estación biométrica.",
   bio_sub:"El registro web no está habilitado para su perfil — sus registros aparecen abajo automáticamente.",
-  kiosk_only_title:"Registre en la tableta del reloj",
-  kiosk_only_sub:"Los empleados presenciales registran entrada y salida en la tableta compartida de la bodega.",
   today_punches:"Registros de hoy", no_punches:"Aún no hay registros hoy.", src_web:"web", src_clock:"reloj",
   lt_in:"Entrada", lt_out:"Salida", lt_meal_start:"Inicio de comida", lt_meal_end:"Fin de comida", lt_break_start:"Inicio de descanso", lt_break_end:"Fin de descanso",
   gate_meal_min:"Mínimo de comida — puede volver en {t}", gate_break_min:"Mínimo de descanso — puede volver en {t}",
@@ -788,7 +788,6 @@ const I18N={
   toast_meal_min:"Mínimo de comida es {min} min — faltan {x}", toast_break_min:"Mínimo de descanso es {min} min — faltan {x}",
   toast_checkloc:"Verificando su ubicación…", toast_turnloc:"Active la ubicación para registrar en un sitio de trabajo",
   toast_notsite:"No está en un sitio de WS Display — registre desde la bodega", toast_photo:"Tomando su foto…",
-  toast_kiosk_only:"Use la tableta del reloj para registrar.",
   toast_recorded:"{label} registrado — ¡gracias, {name}!", toast_punched:"Registrado: {label}",
   toast_tc_approved:"¡Horas aprobadas — gracias!", toast_returning:"Volviendo al HRIS…",
   pill_pending:"pendiente", pill_applied:"aplicado", pill_approved:"aprobado", pill_denied:"denegado", pill_cancelled:"cancelado",
@@ -805,7 +804,6 @@ function render(){
   app.innerHTML = `
     <div class="hdr"><div class="av"><i class="ti ti-user"></i></div>
       <div><b>${e.name}</b><span>ID ${e.empId} · ${TZ[e.tz]}</span></div>
-      ${isKiosk()?`<span class="kioskflag"><i class="ti ti-device-tablet"></i> Kiosk</span>`:''}
       ${langToggle()}
       <button class="out" onclick="signOut()"><i class="ti ti-logout"></i></button></div>
     <div class="body">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests})[TAB]()}</div>
@@ -860,7 +858,7 @@ function viewLogin(){
 
 function startClock(){
   const e=me();
-  const tick=()=>{ const now=new Date(); const tEl=document.getElementById('liveT'); if(!tEl){clearInterval(clockTimer);return;}
+  const tick=()=>{ const now=nowDate(); const tEl=document.getElementById('liveT'); if(!tEl){clearInterval(clockTimer);return;}
     const parts=new Intl.DateTimeFormat(LOCALE(),{timeZone:e.tz,hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true}).formatToParts(now);
     const get=t=>parts.find(p=>p.type===t)?.value; tEl.innerHTML=`${get('hour')}:${get('minute')}:${get('second')} <span class="ampm">${get('dayPeriod')}</span>`;
     const dEl=document.getElementById('liveD'); if(dEl) dEl.textContent=new Intl.DateTimeFormat(LOCALE(),{timeZone:e.tz,weekday:'long',month:'long',day:'numeric'}).format(now);
@@ -870,7 +868,7 @@ function startClock(){
     let msg='';
     if(last && (last.type==='break_start'||last.type==='meal_start')){
       const isMeal=last.type==='meal_start'; const min=isMeal?30:10;
-      const remMs=min*60000-(Date.now()-new Date(last.ts).getTime());
+      const remMs=min*60000-(nowMs()-new Date(last.ts).getTime());
       const btn=document.getElementById(isMeal?'endMealBtn':'endBreakBtn');
       if(remMs>0){ if(btn)btn.disabled=true; const rm=Math.floor(remMs/60000), rs=Math.floor((remMs%60000)/1000);
         msg=`<i class="ti ti-lock-clock"></i> ${t(isMeal?'gate_meal_min':'gate_break_min',{t:`<b>${rm}:${String(rs).padStart(2,'0')}</b>`})}`; }
@@ -885,10 +883,9 @@ function viewClock(){
   const e=me(); const st=empStatus(e.id);
   const sm={out:[t('st_out'),'out'],in:[t('st_in'),'in'],meal:[t('st_meal'),'meal'],break:[t('st_break'),'break']};
   const todayK=todayYmd(e); const today=DB.punches.filter(p=>p.emp===e.id&&partsInTz(p.ts,e.tz).ymd===todayK).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
-  const onsite=e.remote===false; const mustUseTablet=onsite && !isKiosk();   // on-site employee on a personal device
-  const canPunch=e.webPunch && !mustUseTablet;
+  const canPunch=e.webPunch;
   const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
-  const sinceMin = last?(Date.now()-new Date(last.ts).getTime())/60000:0;
+  const sinceMin = last?(nowMs()-new Date(last.ts).getTime())/60000:0;
   const breakGate = st==='break' && sinceMin<10;   // 10-min minimum break
   const mealGate  = st==='meal'  && sinceMin<30;    // 30-min minimum meal
   const btns=`<div class="punchgrid">
@@ -906,9 +903,7 @@ function viewClock(){
       <div class="date" id="liveD"></div>
       <div class="status ${sm[st][1]}"><span class="pt"></span> ${sm[st][0]}</div>
     </div>
-    ${canPunch? btns
-      : mustUseTablet ? `<div class="bio"><i class="ti ti-device-tablet"></i><div><b>${t('kiosk_only_title')}</b><br>${t('kiosk_only_sub')}</div></div>`
-      : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>${t('bio_title')}</b><br>${t('bio_sub')}</div></div>`}
+    ${canPunch? btns : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>${t('bio_title')}</b><br>${t('bio_sub')}</div></div>`}
     <div class="card" style="margin-top:16px">
       <h2><i class="ti ti-list-details"></i> ${t('today_punches')}</h2>
       ${today.length?`<ul class="plist">${today.map(p=>`<li><span class="tt">${fmtTime(p.ts,e)}</span> ${labelType(p.type)} <span class="src ${p.source==='web'?'web':''}">${p.source==='web'?t('src_web'):t('src_clock')}</span></li>`).join('')}</ul>`:`<div class="empty">${t('no_punches')}</div>`}
@@ -980,7 +975,7 @@ function viewRequests(){
 function fmt12(hm){ if(!hm||!hm.includes(':'))return hm; let[h,m]=hm.split(':').map(Number); const ap=h<12?'AM':'PM'; h=h%12||12; return `${h}:${String(m).padStart(2,'0')} ${ap}`; }
 function submitReq(){
   const e=me(); if(!REQ.note.trim()){ toast(t('toast_note')); return; }
-  const req={id:'r'+Date.now(), emp:e.id, weekKey:weekKeyFor(REQ.ymd+'T12:00:00Z',e), kind:REQ.kind, proposed:{ymd:REQ.ymd,time:REQ.time,type:REQ.type}, note:REQ.note.trim(), status:'pending', by:e.name, at:new Date().toISOString()};
+  const req={id:'r'+Date.now(), emp:e.id, weekKey:weekKeyFor(REQ.ymd+'T12:00:00Z',e), kind:REQ.kind, proposed:{ymd:REQ.ymd,time:REQ.time,type:REQ.type}, note:REQ.note.trim(), status:'pending', by:e.name, at:nowDate().toISOString()};
   DB.requests.push(req); chk(Store.addPunchRequest(req),'Request');
   REQ={kind:'add',ymd:todayYmd(e),time:'08:00',type:'in',note:''};
   toast(t('toast_req_sent')); render();
@@ -1007,7 +1002,7 @@ function ptoTotal(){ return ptoDays().reduce((s,d)=>s+PTO.selected[d],0); }
 function submitPTO(){ const days=ptoDays(); if(!days.length){ toast(t('toast_selectday')); return; }
   const avail=balance(me(), PTO.type==='Sick'?'sick':'pto').available;
   if(PTO.type!=='Unpaid' && ptoTotal()>avail){ toast(t('toast_only_avail',{a:avail,type:PTO.type})); return; }
-  const req={id:'pto'+Date.now(), emp:ME, days:days.map(ymd=>({ymd,hours:PTO.selected[ymd]})), type:PTO.type, note:PTO.note.trim(), status:'pending', by:me().name, at:new Date().toISOString()};
+  const req={id:'pto'+Date.now(), emp:ME, days:days.map(ymd=>({ymd,hours:PTO.selected[ymd]})), type:PTO.type, note:PTO.note.trim(), status:'pending', by:me().name, at:nowDate().toISOString()};
   DB.ptoRequests.push(req); chk(Store.addPtoRequest(req),'Time-off request');
   PTO.selected={}; PTO.note=''; toast(t('toast_to_sent')); render(); }
 
@@ -1043,6 +1038,8 @@ function viewTimeOff(){
 }
 
 async function boot(){
+  syncServerTime();                             // anchor to server time (non-blocking); refresh periodically for a long-running kiosk
+  setInterval(syncServerTime, 5*60*1000);
   if(Store.enabled){
     const session = await Store.session();     // HRIS-tab SSO: session already exists
     if(session){ await afterAuth(); return; }
