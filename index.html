@@ -52,7 +52,16 @@ input,select{font-family:inherit;font-size:15px}
 .hdr{background:var(--grad);color:#fff;padding:16px 18px;display:flex;align-items:center;gap:12px}
 .hdr .av{width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.15);display:grid;place-items:center;font-size:22px}
 .hdr b{font-size:16px;display:block} .hdr span{font-size:12px;opacity:.75}
-.hdr .out{margin-left:auto;background:rgba(255,255,255,.14);color:#fff;padding:8px 12px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:6px}
+.hdr .out{margin-left:8px;background:rgba(255,255,255,.14);color:#fff;padding:8px 12px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:6px}
+.langtog{display:inline-flex;gap:2px;background:rgba(0,0,0,.06);border-radius:9px;padding:2px}
+.langtog button{background:none;font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--muted);padding:5px 9px;border-radius:7px;cursor:pointer}
+.langtog button.on{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.hdr .langtog{margin-left:auto;background:rgba(255,255,255,.16)}
+.hdr .langtog button{color:rgba(255,255,255,.7)}
+.hdr .langtog button.on{background:rgba(255,255,255,.95);color:var(--navy)}
+.login .langtog{position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);z-index:6}
+.login .langtog button{color:rgba(255,255,255,.72)}
+.login .langtog button.on{background:rgba(255,255,255,.92);color:#12274d}
 
 .body{flex:1;padding:18px;padding-bottom:90px;overflow-y:auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}
@@ -217,6 +226,18 @@ const Store = (() => {
       if (vErr) return { ok:false, error:'Sign-in failed' };
       return { ok:true };
     },
+    async pinStatus(empId) {
+      if (!enabled) return { exists:true, hasPin:true };
+      const { data, error } = await sb.rpc('pin_status', { p_emp_id:String(empId) });
+      if (error) return { error:error.message };
+      return data || { exists:false };
+    },
+    async enrollPin(empId, pin) {
+      if (!enabled) return { ok:false, error:'offline' };
+      const { data, error } = await sb.rpc('enroll_pin', { p_emp_id:String(empId), p_pin:String(pin) });
+      if (error) return { ok:false, error:error.message };
+      return data || { ok:false, error:'Could not set PIN' };
+    },
     async myEmployeeId() {
       if (!enabled) return null;
       const { data:{ user } } = await sb.auth.getUser();
@@ -235,9 +256,15 @@ const Store = (() => {
       ]);
       const segApprovals = {}; (segAppr.data||[]).forEach(r => segApprovals[`${r.in_punch_id}|${r.layer}`] = {by:r.by_name, at:r.at});
       const ackAlerts = {}; (ack.data||[]).forEach(r => ackAlerts[r.alert_key] = {by:r.by_name, at:r.at});
-      return { employees, punches, segApprovals, requests:punchReqs, ptoRequests:ptoReqs, ackAlerts };
+      const locResp = await sb.from('punch_locations').select('*');
+      const punchLocations = (locResp.error ? [] : (locResp.data||[]).map(r=>({id:r.id, name:r.name, lat:r.lat, lng:r.lng, radius:r.radius_m||200, active:r.active!==false})));
+      return { employees, punches, segApprovals, requests:punchReqs, ptoRequests:ptoReqs, ackAlerts, punchLocations };
     },
-    addPunch(p)        { return enabled ? sb.from('punches').insert({id:p.id, employee_id:p.emp, ts:p.ts, type:p.type, source:p.source||'web'}) : null; },
+    addPunch(p)        { return enabled ? sb.from('punches').insert({id:p.id, employee_id:p.emp, ts:p.ts, type:p.type, source:p.source||'web', photo_url:p.photoUrl||null, lat:p.lat!=null?p.lat:null, lng:p.lng!=null?p.lng:null}) : null; },
+    async uploadPunchPhoto(blob, path){ if(!enabled) return null;
+      const { error } = await sb.storage.from('punch-photos').upload(path, blob, {contentType:'image/jpeg', upsert:true});
+      if(error){ console.warn('photo upload failed:', error.message); return null; }
+      return path; },
     setSegE(inId, empId, by) { return enabled ? sb.from('seg_approvals').upsert({in_punch_id:inId, layer:'E', employee_id:empId, by_name:by}, {onConflict:'in_punch_id,layer'}) : null; },
     clearSegE(inId)    { return enabled ? sb.from('seg_approvals').delete().match({in_punch_id:inId, layer:'E'}) : null; },
     addPunchRequest(r) { return enabled ? sb.from('punch_requests').insert({id:r.id, employee_id:r.emp, week_key:r.weekKey, kind:r.kind, proposed_ymd:r.proposed.ymd, proposed_time:r.proposed.time, proposed_type:r.proposed.type, note:r.note, status:'pending', created_by:r.by}) : null; },
@@ -342,6 +369,7 @@ const DB={
     {id:'e7', name:'Bertha Flores',    empId:'078', loc:'PA', dept:'Office',     tz:'America/New_York',    webPunch:true, remote:true, pto:{allot:120,used:48}, sick:{allot:40,used:16}}
   ],
   punches:[],          // {id, emp, ts(UTC ISO), type, source}
+  punchLocations:[],   // active geofence sites from Configuration: {id,name,lat,lng,radius,active}
   segApprovals:{},     // `${inPunchId}|E` -> {by,at}   (employee attestation)
   requests:[],         // {id, emp, weekKey, kind, proposed:{ymd,time,type}, note, status, by, at}
   ptoRequests:[],      // {id, emp, dates:[ymd], type, note, status, by, at}
@@ -381,7 +409,7 @@ function ymdAdd(y,n){return new Date(ymdD(y).getTime()+n*86400000).toISOString()
 function weekStartOf(y){return ymdAdd(y,-((ymdD(y).getUTCDay()+6)%7));}
 function todayYmd(e){return partsInTz(new Date().toISOString(),e.tz).ymd;}
 function weekKeyFor(iso,e){ const p=partsInTz(iso,e.tz); const local=new Date(p.ymd+'T00:00:00Z'); const dow=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(p.wd); const mon=new Date(local.getTime()-((dow+6)%7)*86400000); return mon.toISOString().slice(0,10); }
-function weekLabel(key){ const s=new Date(key+'T00:00:00Z'), e=new Date(s.getTime()+6*86400000); const f=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); return `${f(s)} – ${f(e)}`; }
+function weekLabel(key){ const s=new Date(key+'T00:00:00Z'), e=new Date(s.getTime()+6*86400000); const f=d=>d.toLocaleDateString(LOCALE(),{month:'short',day:'numeric',timeZone:'UTC'}); return `${f(s)} – ${f(e)}`; }
 function payPeriodStart(ymd){ const ms=Date.parse(ymd+'T00:00:00Z')-Date.parse(PAY_ANCHOR+'T00:00:00Z'); const n=Math.floor(ms/(14*86400000)); return new Date(Date.parse(PAY_ANCHOR+'T00:00:00Z')+n*14*86400000).toISOString().slice(0,10); }
 function h2(n){ const h=Math.floor(n); const m=Math.round((n-h)*60); return `${h}:${String(m).padStart(2,'0')}`; }
 
@@ -444,7 +472,7 @@ function toggleE(inId){ const k=inId+'|E';
 function weekSegIds(empId,weekKey){ const ids=[]; buildTimecard(empId,weekKey).days.forEach(d=>daySegments(d.punches).forEach(s=>ids.push(s.inId))); return ids; }
 function approveAllE(){ const p=periodOf(me()); p.weeks=buildPeriod(me().id,p.start,p.stop).weeks;
   p.weeks.forEach(wk=>weekSegIds(me().id,wk).forEach(id=>{ DB.segApprovals[id+'|E']={by:me().name,at:new Date().toISOString()}; chk(Store.setSegE(id, ME, me().name),'Approve'); }));
-  toast('Timecard approved — thank you!'); render(); }
+  toast(t('toast_tc_approved')); render(); }
 function allApproved(){ const p=buildPeriod(me().id,periodOf(me()).start,periodOf(me()).stop); const ids=p.weeks.flatMap(wk=>weekSegIds(me().id,wk)); return ids.length>0 && ids.every(segE); }
 
 /* alerts (employee-facing) */
@@ -453,39 +481,87 @@ function myAlerts(){
   const e=me(); const {start,stop}=periodOf(e); const out=[]; let cur=start;
   while(cur<=stop && cur<=todayYmd(e)){
     const wk=weekKeyFor(cur+'T12:00:00Z',e); const d=buildTimecard(e.id,wk).days.find(x=>x.ymd===cur);
-    if(d){ d.exceptions.forEach(x=>{ if(x.includes('Missing')||x.includes('no In')) out.push({type:'punch',date:cur,tone:'warn',ic:'ti-alarm',msg:`Missing punch on ${mdl(cur)}`,sub:'Tap Request to have it fixed'}); });
-      if(d.mealViol) out.push({type:'premium',date:cur,tone:'ok',ic:'ti-cash-banknote',msg:`Meal premium earned ${mdl(cur)}`,sub:'1 hour added at your regular rate'}); }
+    if(d){ d.exceptions.forEach(x=>{ if(x.includes('Missing')||x.includes('no In')) out.push({type:'punch',date:cur,tone:'warn',ic:'ti-alarm',msg:t('al_missing',{date:mdl(cur)}),sub:t('al_missing_sub')}); });
+      if(d.mealViol) out.push({type:'premium',date:cur,tone:'ok',ic:'ti-cash-banknote',msg:t('al_meal',{date:mdl(cur)}),sub:t('al_meal_sub')}); }
     cur=ymdAdd(cur,1);
   }
   return out.map(a=>({...a,key:alertKey(a)})).filter(a=>!DB.ackAlerts[a.key]);
 }
 function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:new Date().toISOString()}; chk(Store.ackAlert(ME, k, me().name),'Acknowledge'); render(); }
-function mdl(ymd){ return ymdD(ymd).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
+function mdl(ymd){ return ymdD(ymd).toLocaleDateString(LOCALE(),{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
 
 /* punch actions */
 function empStatus(empId){ const e=me(); const last=DB.punches.filter(p=>p.emp===empId).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
   if(!last) return 'out'; if(['in','meal_end','break_end'].includes(last.type)) return 'in'; if(last.type==='meal_start') return 'meal'; if(last.type==='break_start') return 'break'; return 'out'; }
-function punch(type){
+/* geofence + photo — on-site punch integrity (remote employees are unaffected) */
+function geoDistM(lat1,lng1,lat2,lng2){ const R=6371000,toR=d=>d*Math.PI/180;
+  const dLat=toR(lat2-lat1),dLng=toR(lng2-lng1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toR(lat1))*Math.cos(toR(lat2))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(a))); }
+function activeSites(){ return (DB.punchLocations||[]).filter(s=>s.active && s.lat!=null && s.lng!=null); }
+function withinAnySite(lat,lng){ return activeSites().some(s=>geoDistM(lat,lng,s.lat,s.lng)<=(s.radius||200)); }
+function getPosition(){ return new Promise(res=>{ if(!navigator.geolocation) return res(null);
+  navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude}), ()=>res(null), {enableHighAccuracy:true,timeout:10000,maximumAge:0}); }); }
+// grab a single still from the front camera, upload it, return the storage path (best-effort; never blocks the punch)
+async function capturePunchPhoto(empIdNum, punchId){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+  let stream=null;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
+    const v=document.createElement('video'); v.playsInline=true; v.muted=true; v.srcObject=stream;
+    await v.play().catch(()=>{});
+    await new Promise(r=>setTimeout(r,450));                 // let exposure settle
+    const w=v.videoWidth||640, h=v.videoHeight||480;
+    const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    cv.getContext('2d').drawImage(v,0,0,w,h);
+    const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.8));
+    stream.getTracks().forEach(t=>t.stop());
+    if(!blob) return null;
+    return await Store.uploadPunchPhoto(blob, `${empIdNum||'unknown'}/${punchId}.jpg`);
+  }catch(e){ if(stream) stream.getTracks().forEach(t=>t.stop()); console.warn('photo capture skipped:', e.message); return null; }
+}
+
+let PUNCHING=false;
+async function punch(type){
+  if(PUNCHING) return;
   // enforce minimums: 30-min meal, 10-min break
   if(type==='meal_end'||type==='break_end'){
     const last=DB.punches.filter(p=>p.emp===ME).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
     if(last){ const isMeal=type==='meal_end'; const min=isMeal?30:10;
       const mins=(Date.now()-new Date(last.ts).getTime())/60000;
-      if(mins<min){ toast(`${isMeal?'Meal':'Break'} minimum is ${min} min — ${Math.ceil(min-mins)} to go`); return; } }
+      if(mins<min){ toast(t(isMeal?'toast_meal_min':'toast_break_min',{min:min,x:Math.ceil(min-mins)})); return; } }
   }
-  const np={id:'p'+Date.now(), emp:ME, ts:new Date().toISOString(), type, source:'web'};
+  const e=me(); const onsite = !!(e && e.remote===false);
+  const pid='p'+Date.now(); let lat=null, lng=null, photoUrl=null;
+
+  if(onsite){
+    PUNCHING=true;
+    const sites=activeSites();
+    if(sites.length){                                       // geofence only if HR has set up sites
+      toast(t('toast_checkloc'));
+      const loc=await getPosition();
+      if(!loc){ PUNCHING=false; toast(t('toast_turnloc')); return; }
+      if(!withinAnySite(loc.lat,loc.lng)){ PUNCHING=false; toast(t('toast_notsite')); return; }
+      lat=+loc.lat.toFixed(6); lng=+loc.lng.toFixed(6);
+    }
+    toast(t('toast_photo'));
+    photoUrl = await capturePunchPhoto(e.empId, pid);       // best-effort; null if camera unavailable
+    PUNCHING=false;
+  }
+
+  const np={id:pid, emp:ME, ts:new Date().toISOString(), type, source:'web', photoUrl, lat, lng};
   DB.punches.push(np);
   const r=Store.addPunch(np);
   if(r && r.then) r.then(res=>{ if(res && res.error){ console.error('Punch save failed:', res.error); toast('⚠ Not saved — '+(res.error.message||'try again')); } });
-  const e=me();
-  if(e && e.remote===false){   // shared terminal: confirm, then return to keypad for the next person
-    toast(`${labelType(type)} recorded — thank you, ${e.name.split(' ')[0]}!`);
+  if(onsite){   // shared terminal: confirm, then return to keypad for the next person
+    toast(t('toast_recorded',{label:labelType(type),name:e.name.split(' ')[0]}));
     render();
     setTimeout(()=>signOut(), 1700);
     return;
   }
-  toast(`Punched: ${labelType(type)}`); render(); }
-function labelType(t){ return {in:'Clock In',out:'Clock Out',meal_start:'Meal start',meal_end:'Meal end',break_start:'Break start',break_end:'Break end'}[t]||t; }
+  toast(t('toast_punched',{label:labelType(type)})); render();
+}
+function labelType(x){ return t('lt_'+x) !== ('lt_'+x) ? t('lt_'+x) : x; }
 
 /* ============================================================
    UI
@@ -518,11 +594,14 @@ function bootstrapAuth(){
 
 /* ---------- keypad sign-in (ID + optional PIN) ---------- */
 let LOGIN=null, SSO=false;
-function initLogin(){ LOGIN={step:'id', id:'', pin:'', empId:'', err:'', busy:false}; }
+function initLogin(){ LOGIN={step:'id', id:'', pin:'', pin1:'', empId:'', err:'', busy:false}; }
 function empName(id){ const e=DB.employees.find(x=>x.id===id); return e?e.name:''; }
 function kp(d){ const L=LOGIN; if(L.busy) return; L.err='';
   if(L.step==='id'){ if(L.id.length<6) L.id+=d; render(); return; }
-  if(L.step==='pin'){ if(L.pin.length<4) L.pin+=d; if(L.pin.length===4) return checkPin(); return render(); }
+  // pin / enroll / confirm all collect a 4-digit L.pin
+  if(L.pin.length<4) L.pin+=d;
+  if(L.pin.length===4){ if(L.step==='pin') return checkPin(); if(L.step==='enroll') return enrollNext(); if(L.step==='confirm') return enrollConfirm(); }
+  render();
 }
 function kback(){ const L=LOGIN; if(L.busy) return; L.err='';
   if(L.step==='id') L.id=L.id.slice(0,-1); else L.pin=L.pin.slice(0,-1);
@@ -530,43 +609,173 @@ function kback(){ const L=LOGIN; if(L.busy) return; L.err='';
 }
 function kgo(){ const L=LOGIN; if(L.busy) return;
   if(L.step==='id') return submitId();
-  if(L.step==='pin' && L.pin.length===4) return checkPin();
+  if(L.pin.length===4){ if(L.step==='pin') return checkPin(); if(L.step==='enroll') return enrollNext(); if(L.step==='confirm') return enrollConfirm(); }
 }
-function submitId(){ const L=LOGIN; if(!L.id){ L.err='Enter your ID'; return render(); }
-  L.empId=L.id; L.step='pin'; L.pin=''; L.err=''; render();   // ID validated server-side with the PIN
+async function submitId(){ const L=LOGIN; if(!L.id){ L.err=t('err_enterid'); return render(); }
+  L.empId=L.id; L.err='';
+  if(!Store.enabled){ L.step='pin'; L.pin=''; return render(); }   // offline demo
+  L.busy=true; render();
+  const st=await Store.pinStatus(L.empId); L.busy=false;
+  if(st.error){ L.err=t('err_generic'); return render(); }
+  if(!st.exists){ L.err=t('err_idnotfound'); return render(); }
+  if(st.hasPin){ L.step='pin'; L.pin=''; }          // returning: enter PIN
+  else { L.step='enroll'; L.pin=''; L.pin1=''; }     // first time: create a PIN
+  render();
+}
+function enrollNext(){ const L=LOGIN; L.pin1=L.pin; L.pin=''; L.step='confirm'; L.err=''; render(); }
+async function enrollConfirm(){ const L=LOGIN;
+  if(L.pin!==L.pin1){ L.err=t('err_pinmismatch'); L.pin=''; L.pin1=''; L.step='enroll'; return render(); }
+  L.busy=true; render();
+  const res=await Store.enrollPin(L.empId, L.pin);
+  if(!res.ok){ L.busy=false; L.err=res.error||t('err_generic'); L.pin=''; L.pin1=''; L.step='enroll'; return render(); }
+  const login=await Store.pinLogin(L.empId, L.pin);   // PIN set — sign in with it
+  if(!login.ok){ L.busy=false; L.err=t('err_badpin'); L.pin=''; return render(); }
+  await afterAuth();
 }
 async function checkPin(){ const L=LOGIN;
   if(!Store.enabled){   // offline demo fallback
     const e=DB.employees.find(x=>x.empId===L.empId);
     if(e && DB.pins[e.empId]===L.pin){ ME=e.id; LOGIN=null; TAB='clock'; return render(); }
-    L.err='Incorrect ID or PIN'; L.pin=''; return render();
+    L.err=t('err_badpin'); L.pin=''; return render();
   }
   L.busy=true; render();
   const res = await Store.pinLogin(L.empId, L.pin);
-  if(!res.ok){ L.err = res.error==='offline' ? 'Offline' : 'Incorrect ID or PIN'; L.pin=''; L.busy=false; return render(); }
+  if(!res.ok){ L.err = res.error==='offline' ? 'Offline' : t('err_badpin'); L.pin=''; L.busy=false; return render(); }
   await afterAuth();
 }
 async function afterAuth(){
   const eid = await Store.myEmployeeId();
-  if(!eid){ if(LOGIN){ LOGIN.err='No profile found — contact HR'; LOGIN.pin=''; LOGIN.busy=false; } return render(); }
+  if(!eid){ if(LOGIN){ LOGIN.err=t('err_noprofile'); LOGIN.pin=''; LOGIN.busy=false; } return render(); }
   const snap = await Store.loadMine();
   if(snap){ DB.employees=snap.employees; DB.punches=snap.punches; DB.segApprovals=snap.segApprovals;
-            DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; }
+            DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; DB.punchLocations=snap.punchLocations||[]; }
   ME=eid; LOGIN=null; SSO=false; TAB='clock'; render();
   Live.start();
 }
 function backToId(){ LOGIN.step='id'; LOGIN.pin=''; LOGIN.err=''; LOGIN.busy=false; render(); }
 function signOut(){ if(Store.enabled){ Live.stop(); Store.signOut(); } ME=null; LOGIN=null; if(clockTimer)clearInterval(clockTimer);
-  if(SSO){ SSO=false; toast('Returning to HRIS…'); }
+  if(SSO){ SSO=false; toast(t('toast_returning')); }
   render(); }
 function go(tab){ TAB=tab; render(); }
 
 function startLoginClock(){ if(clockTimer)clearInterval(clockTimer);
   const t=()=>{ const el=document.getElementById('loginTime'); if(!el){clearInterval(clockTimer);return;}
-    const now=new Date(); el.textContent=now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-    const d=document.getElementById('loginDate'); if(d) d.textContent=now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}); };
+    const now=new Date(); el.textContent=now.toLocaleTimeString(LOCALE(),{hour:'numeric',minute:'2-digit'});
+    const d=document.getElementById('loginDate'); if(d) d.textContent=now.toLocaleDateString(LOCALE(),{weekday:'long',month:'long',day:'numeric'}); };
   t(); clockTimer=setInterval(t,1000);
 }
+
+/* ============================================================
+   i18n — English / Spanish. Language is remembered per device
+   (localStorage 'wc_lang'), so a Spanish-preferring tablet stays
+   in Spanish. t(key,vars) interpolates {vars}; LOCALE() feeds the
+   date formatters.
+============================================================ */
+let LANG = (()=>{ try{ return localStorage.getItem('wc_lang')==='es'?'es':'en'; }catch(e){ return 'en'; } })();
+function setLang(l){ LANG=(l==='es'?'es':'en'); try{localStorage.setItem('wc_lang',LANG);}catch(e){} render(); }
+function LOCALE(){ return LANG==='es'?'es':'en-US'; }
+function t(key,vars){ let s=(I18N[LANG]&&I18N[LANG][key]); if(s==null) s=I18N.en[key]; if(s==null) s=key;
+  if(vars) Object.keys(vars).forEach(k=>{ s=s.split('{'+k+'}').join(vars[k]); }); return s; }
+function stLabel(s){ const k='pill_'+s; return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||s; }
+function langToggle(){ return `<div class="langtog">${['en','es'].map(l=>`<button class="${LANG===l?'on':''}" onclick="setLang('${l}')">${l==='en'?'EN':'ES'}</button>`).join('')}</div>`; }
+const I18N={
+ en:{
+  brand:"WS Display · Time Clock",
+  id_title:"Enter your ID", id_sub:"Type your employee ID number",
+  pin_title:"Enter your PIN", signing:"Signing in…", pin_sub:"Enter your 4-digit PIN",
+  change_id:"Change ID", no_pin:"No PIN yet? Set one in the HR portal, then sign in here.",
+  protected:"Protected by your personal PIN",
+  nav_clock:"Clock", nav_timecard:"Timecard", nav_timeoff:"Time Off", nav_alerts:"Alerts", nav_requests:"Requests",
+  st_out:"Clocked out", st_in:"On the clock", st_meal:"On meal break", st_break:"On break",
+  b_in:"Clock In", b_out:"Clock Out", b_meal_start:"Start Meal", b_meal_end:"End Meal", b_break_start:"Start Break", b_break_end:"End Break",
+  bio_title:"You clock in at the biometric station.",
+  bio_sub:"Web punching isn't enabled for your profile — your punches appear below automatically.",
+  today_punches:"Today's punches", no_punches:"No punches yet today.", src_web:"web", src_clock:"clock",
+  lt_in:"Clock In", lt_out:"Clock Out", lt_meal_start:"Meal start", lt_meal_end:"Meal end", lt_break_start:"Break start", lt_break_end:"Break end",
+  gate_meal_min:"Meal minimum — you can return in {t}", gate_break_min:"Break minimum — you can return in {t}",
+  gate_meal_ok:"You can end your meal now", gate_break_ok:"You can end your break now",
+  tc_title:"My Timecard", pp_this:"This pay period", pp_last:"Last",
+  tc_regular:"Regular", tc_ot:"OT", tc_total:"Total", tc_none:"No hours recorded this period.",
+  br_paid:"{n} min paid break", br_split:"{n} min break — 12 paid, {x} unpaid", br_meal:"{n} min meal", missing:"missing",
+  ap_you:"You", ap_mgr:"Manager", ap_hr:"HR",
+  tc_approved:"Approved — sent to your manager", tc_approve:"Approve my timecard",
+  tc_help:"Tap each entry to verify it, or approve all at once. See a mistake? Use Requests.",
+  hrs:"hrs",
+  al_title:"Alerts", al_sub:"Notifications about your time", al_clear:"🎉 You're all caught up.",
+  al_missing:"Missing punch on {date}", al_missing_sub:"Tap Request to have it fixed",
+  al_meal:"Meal premium earned {date}", al_meal_sub:"1 hour added at your regular rate",
+  rq_title:"Request a correction", rq_sub:"Ask HR to add or fix a punch",
+  rq_what:"What's wrong?", rq_add:"Add a missing punch", rq_fix:"Fix an existing punch",
+  rq_ptype:"Punch type", rq_date:"Date", rq_time:"Correct time", rq_note:"Note (required)",
+  rq_ph:"e.g. Forgot to clock out, left at 4:45", rq_send:"Send to HR", rq_mine:"My requests",
+  rq_add_short:"Add", rq_fix_short:"Fix",
+  toast_note:"Add a note", toast_req_sent:"Request sent to HR",
+  to_title:"Request time off", to_sub:"Tap the days you'd like off",
+  bal_pto:"PTO", bal_sick:"Sick", bal_used:"Used", bal_committed:"Committed", bal_available:"Available",
+  bal_foot:"{a}h of {b}h left · {d} days",
+  to_across:"{total}h across {n} {dayword} — set hours per day", word_day:"day", word_days:"days",
+  to_type:"Type", to_note:"Note (optional)", to_ph:"e.g. Family vacation", to_request:"Request {total}h off",
+  to_selecthint:"Select one or more days above to submit a request.", to_mine:"My time-off requests",
+  toast_selectday:"Select at least one day", toast_only_avail:"Only {a}h {type} available", toast_to_sent:"Time-off request sent to HR",
+  toast_meal_min:"Meal minimum is {min} min — {x} to go", toast_break_min:"Break minimum is {min} min — {x} to go",
+  toast_checkloc:"Checking your location…", toast_turnloc:"Turn on location to clock in at a work site",
+  toast_notsite:"You're not at a WS Display work site — clock in from the warehouse", toast_photo:"Taking your photo…",
+  toast_recorded:"{label} recorded — thank you, {name}!", toast_punched:"Punched: {label}",
+  toast_tc_approved:"Timecard approved — thank you!", toast_returning:"Returning to HRIS…",
+  pill_pending:"pending", pill_applied:"applied", pill_approved:"approved", pill_denied:"denied", pill_cancelled:"cancelled",
+  err_enterid:"Enter your ID", err_badpin:"Incorrect ID or PIN", err_noprofile:"No profile found — contact HR",
+  enr_title:"Create your PIN", enr_sub:"Choose a 4-digit PIN", enr_confirm:"Confirm your PIN", enr_confirm_sub:"Enter it again",
+  enr_note:"Pick a PIN you'll remember — you'll use it every day.", err_pinmismatch:"PINs don't match — try again", err_idnotfound:"ID not found", err_generic:"Something went wrong — try again"
+ },
+ es:{
+  brand:"WS Display · Reloj de tiempo",
+  id_title:"Ingrese su ID", id_sub:"Escriba su número de empleado",
+  pin_title:"Ingrese su PIN", signing:"Ingresando…", pin_sub:"Ingrese su PIN de 4 dígitos",
+  change_id:"Cambiar ID", no_pin:"¿Sin PIN? Configúrelo en el portal de RR. HH. y luego inicie sesión aquí.",
+  protected:"Protegido por su PIN personal",
+  nav_clock:"Reloj", nav_timecard:"Horas", nav_timeoff:"Permisos", nav_alerts:"Avisos", nav_requests:"Solicitudes",
+  st_out:"Sin registrar", st_in:"Trabajando", st_meal:"En comida", st_break:"En descanso",
+  b_in:"Entrada", b_out:"Salida", b_meal_start:"Iniciar comida", b_meal_end:"Terminar comida", b_break_start:"Iniciar descanso", b_break_end:"Terminar descanso",
+  bio_title:"Usted registra en la estación biométrica.",
+  bio_sub:"El registro web no está habilitado para su perfil — sus registros aparecen abajo automáticamente.",
+  today_punches:"Registros de hoy", no_punches:"Aún no hay registros hoy.", src_web:"web", src_clock:"reloj",
+  lt_in:"Entrada", lt_out:"Salida", lt_meal_start:"Inicio de comida", lt_meal_end:"Fin de comida", lt_break_start:"Inicio de descanso", lt_break_end:"Fin de descanso",
+  gate_meal_min:"Mínimo de comida — puede volver en {t}", gate_break_min:"Mínimo de descanso — puede volver en {t}",
+  gate_meal_ok:"Ya puede terminar su comida", gate_break_ok:"Ya puede terminar su descanso",
+  tc_title:"Mis horas", pp_this:"Periodo actual", pp_last:"Anterior",
+  tc_regular:"Regular", tc_ot:"Extra", tc_total:"Total", tc_none:"No hay horas registradas este periodo.",
+  br_paid:"{n} min de descanso pagado", br_split:"{n} min descanso — 12 pagados, {x} sin pagar", br_meal:"{n} min de comida", missing:"falta",
+  ap_you:"Usted", ap_mgr:"Gerente", ap_hr:"RR. HH.",
+  tc_approved:"Aprobado — enviado a su gerente", tc_approve:"Aprobar mis horas",
+  tc_help:"Toque cada registro para verificarlo, o apruebe todo a la vez. ¿Ve un error? Use Solicitudes.",
+  hrs:"hrs",
+  al_title:"Avisos", al_sub:"Notificaciones sobre su tiempo", al_clear:"🎉 Está al día.",
+  al_missing:"Falta un registro el {date}", al_missing_sub:"Toque Solicitudes para corregirlo",
+  al_meal:"Prima de comida ganada el {date}", al_meal_sub:"1 hora añadida a su tarifa regular",
+  rq_title:"Solicitar una corrección", rq_sub:"Pida a RR. HH. agregar o corregir un registro",
+  rq_what:"¿Qué sucede?", rq_add:"Agregar un registro faltante", rq_fix:"Corregir un registro existente",
+  rq_ptype:"Tipo de registro", rq_date:"Fecha", rq_time:"Hora correcta", rq_note:"Nota (obligatoria)",
+  rq_ph:"ej. Olvidé marcar salida, salí a las 4:45", rq_send:"Enviar a RR. HH.", rq_mine:"Mis solicitudes",
+  rq_add_short:"Agregar", rq_fix_short:"Corregir",
+  toast_note:"Agregue una nota", toast_req_sent:"Solicitud enviada a RR. HH.",
+  to_title:"Solicitar permiso", to_sub:"Toque los días que desea",
+  bal_pto:"PTO", bal_sick:"Enfermedad", bal_used:"Usado", bal_committed:"Comprometido", bal_available:"Disponible",
+  bal_foot:"{a}h de {b}h · {d} días",
+  to_across:"{total}h en {n} {dayword} — asigne horas por día", word_day:"día", word_days:"días",
+  to_type:"Tipo", to_note:"Nota (opcional)", to_ph:"ej. Vacaciones familiares", to_request:"Solicitar {total}h",
+  to_selecthint:"Seleccione uno o más días arriba para enviar una solicitud.", to_mine:"Mis solicitudes de permiso",
+  toast_selectday:"Seleccione al menos un día", toast_only_avail:"Solo {a}h de {type} disponibles", toast_to_sent:"Solicitud de permiso enviada a RR. HH.",
+  toast_meal_min:"Mínimo de comida es {min} min — faltan {x}", toast_break_min:"Mínimo de descanso es {min} min — faltan {x}",
+  toast_checkloc:"Verificando su ubicación…", toast_turnloc:"Active la ubicación para registrar en un sitio de trabajo",
+  toast_notsite:"No está en un sitio de WS Display — registre desde la bodega", toast_photo:"Tomando su foto…",
+  toast_recorded:"{label} registrado — ¡gracias, {name}!", toast_punched:"Registrado: {label}",
+  toast_tc_approved:"¡Horas aprobadas — gracias!", toast_returning:"Volviendo al HRIS…",
+  pill_pending:"pendiente", pill_applied:"aplicado", pill_approved:"aprobado", pill_denied:"denegado", pill_cancelled:"cancelado",
+  err_enterid:"Ingrese su ID", err_badpin:"ID o PIN incorrecto", err_noprofile:"No se encontró perfil — contacte a RR. HH.",
+  enr_title:"Cree su PIN", enr_sub:"Elija un PIN de 4 dígitos", enr_confirm:"Confirme su PIN", enr_confirm_sub:"Ingréselo de nuevo",
+  enr_note:"Elija un PIN que recuerde — lo usará cada día.", err_pinmismatch:"Los PIN no coinciden — intente de nuevo", err_idnotfound:"ID no encontrado", err_generic:"Algo salió mal — intente de nuevo"
+ }
+};
 
 function render(){
   const app=document.getElementById('app'); if(clockTimer){clearInterval(clockTimer);clockTimer=null;}
@@ -575,6 +784,7 @@ function render(){
   app.innerHTML = `
     <div class="hdr"><div class="av"><i class="ti ti-user"></i></div>
       <div><b>${e.name}</b><span>ID ${e.empId} · ${TZ[e.tz]}</span></div>
+      ${langToggle()}
       <button class="out" onclick="signOut()"><i class="ti ti-logout"></i></button></div>
     <div class="body">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests})[TAB]()}</div>
     ${navBar()}`;
@@ -582,7 +792,7 @@ function render(){
 }
 function navBar(){ const n=myAlerts().length;
   const item=(id,ic,lbl,badge)=>`<button class="${TAB===id?'on':''}" onclick="go('${id}')">${badge?`<span class="nb">${badge}</span>`:''}<i class="ti ${ic}"></i>${lbl}</button>`;
-  return `<div class="nav">${item('clock','ti-clock-hour-4','Clock')}${item('timecard','ti-id-badge-2','Timecard')}${item('timeoff','ti-calendar-plus','Time Off')}${item('alerts','ti-bell','Alerts',n)}${item('requests','ti-message-report','Requests')}</div>`;
+  return `<div class="nav">${item('clock','ti-clock-hour-4',t('nav_clock'))}${item('timecard','ti-id-badge-2',t('nav_timecard'))}${item('timeoff','ti-calendar-plus',t('nav_timeoff'))}${item('alerts','ti-bell',t('nav_alerts'),n)}${item('requests','ti-message-report',t('nav_requests'))}</div>`;
 }
 
 function keypad(){
@@ -599,14 +809,17 @@ function viewLogin(){
   const idBoxes = L.id ? L.id.split('').map(d=>`<span>${d}</span>`).join('') : `<span class="ph2">– – –</span>`;
   const dots = len => `<div class="pin-dots">${[0,1,2,3].map(i=>`<span class="${i<len?'on':''}"></span>`).join('')}</div>`;
   let title,sub,display,back='';
-  if(L.step==='id'){ title='Enter your ID'; sub='Type your employee ID number'; display=`<div class="id-display">${idBoxes}</div>`; }
-  else { title='Enter your PIN'; sub=L.busy?'Signing in…':'Enter your 4-digit PIN'; display=dots(L.pin.length);
-         back=`<button class="login-back" onclick="backToId()"><i class="ti ti-arrow-left"></i> Change ID</button>`; }
+  const changeId=`<button class="login-back" onclick="backToId()"><i class="ti ti-arrow-left"></i> ${t('change_id')}</button>`;
+  if(L.step==='id'){ title=t('id_title'); sub=t('id_sub'); display=`<div class="id-display">${idBoxes}</div>`; }
+  else if(L.step==='enroll'){ title=t('enr_title'); sub=t('enr_sub'); display=dots(L.pin.length); back=changeId; }
+  else if(L.step==='confirm'){ title=t('enr_confirm'); sub=L.busy?t('signing'):t('enr_confirm_sub'); display=dots(L.pin.length); back=changeId; }
+  else { title=t('pin_title'); sub=L.busy?t('signing'):t('pin_sub'); display=dots(L.pin.length); back=changeId; }
   return `<div class="login">
     <div class="login-glow"></div><div class="login-glow b"></div>
+    ${langToggle()}
     <div class="login-top">
       <div class="login-logo"><i class="ti ti-clock-hour-4"></i></div>
-      <div class="login-brand">WS Display · Time Clock</div>
+      <div class="login-brand">${t('brand')}</div>
       <div class="login-clock" id="loginTime">–</div>
       <div class="login-date" id="loginDate"></div>
     </div>
@@ -616,18 +829,19 @@ function viewLogin(){
       <div class="login-err">${L.err?`<i class="ti ti-alert-circle"></i> ${L.err}`:''}</div>
       ${keypad()}
       ${back}
-      ${L.step==='pin'?`<div class="login-note">No PIN yet? Set one in the HR portal, then sign in here.</div>`:''}
+      ${L.step==='pin'?`<div class="login-note">${t('no_pin')}</div>`:''}
+      ${(L.step==='enroll'||L.step==='confirm')?`<div class="login-note">${t('enr_note')}</div>`:''}
     </div>
-    <div class="login-foot"><i class="ti ti-lock"></i> Protected by your personal PIN</div>
+    <div class="login-foot"><i class="ti ti-lock"></i> ${t('protected')}</div>
   </div>`;
 }
 
 function startClock(){
   const e=me();
   const tick=()=>{ const now=new Date(); const tEl=document.getElementById('liveT'); if(!tEl){clearInterval(clockTimer);return;}
-    const parts=new Intl.DateTimeFormat('en-US',{timeZone:e.tz,hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true}).formatToParts(now);
+    const parts=new Intl.DateTimeFormat(LOCALE(),{timeZone:e.tz,hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true}).formatToParts(now);
     const get=t=>parts.find(p=>p.type===t)?.value; tEl.innerHTML=`${get('hour')}:${get('minute')}:${get('second')} <span class="ampm">${get('dayPeriod')}</span>`;
-    const dEl=document.getElementById('liveD'); if(dEl) dEl.textContent=new Intl.DateTimeFormat('en-US',{timeZone:e.tz,weekday:'long',month:'long',day:'numeric'}).format(now);
+    const dEl=document.getElementById('liveD'); if(dEl) dEl.textContent=new Intl.DateTimeFormat(LOCALE(),{timeZone:e.tz,weekday:'long',month:'long',day:'numeric'}).format(now);
     // min-time gate for meal (30) / break (10)
     const gEl=document.getElementById('gate'); if(!gEl) return;
     const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
@@ -637,8 +851,8 @@ function startClock(){
       const remMs=min*60000-(Date.now()-new Date(last.ts).getTime());
       const btn=document.getElementById(isMeal?'endMealBtn':'endBreakBtn');
       if(remMs>0){ if(btn)btn.disabled=true; const rm=Math.floor(remMs/60000), rs=Math.floor((remMs%60000)/1000);
-        msg=`<i class="ti ti-lock-clock"></i> ${isMeal?'Meal':'Break'} minimum — you can return in <b>${rm}:${String(rs).padStart(2,'0')}</b>`; }
-      else { if(btn && e.webPunch) btn.disabled=false; msg=`<i class="ti ti-circle-check"></i> You can end your ${isMeal?'meal':'break'} now`; }
+        msg=`<i class="ti ti-lock-clock"></i> ${t(isMeal?'gate_meal_min':'gate_break_min',{t:`<b>${rm}:${String(rs).padStart(2,'0')}</b>`})}`; }
+      else { if(btn && e.webPunch) btn.disabled=false; msg=`<i class="ti ti-circle-check"></i> ${t(isMeal?'gate_meal_ok':'gate_break_ok')}`; }
     }
     gEl.innerHTML=msg;
   };
@@ -647,7 +861,7 @@ function startClock(){
 
 function viewClock(){
   const e=me(); const st=empStatus(e.id);
-  const sm={out:['Clocked out','out'],in:['On the clock','in'],meal:['On meal break','meal'],break:['On break','break']};
+  const sm={out:[t('st_out'),'out'],in:[t('st_in'),'in'],meal:[t('st_meal'),'meal'],break:[t('st_break'),'break']};
   const todayK=todayYmd(e); const today=DB.punches.filter(p=>p.emp===e.id&&partsInTz(p.ts,e.tz).ymd===todayK).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
   const canPunch=e.webPunch;
   const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
@@ -655,12 +869,12 @@ function viewClock(){
   const breakGate = st==='break' && sinceMin<10;   // 10-min minimum break
   const mealGate  = st==='meal'  && sinceMin<30;    // 30-min minimum meal
   const btns=`<div class="punchgrid">
-    <button class="pbtn go" onclick="punch('in')" ${st!=='out'||!canPunch?'disabled':''}><i class="ti ti-login-2"></i>Clock In</button>
-    <button class="pbtn stop" onclick="punch('out')" ${st==='out'||!canPunch?'disabled':''}><i class="ti ti-logout-2"></i>Clock Out</button>
-    <button class="pbtn" onclick="punch('meal_start')" ${st!=='in'||!canPunch?'disabled':''}><i class="ti ti-tools-kitchen-2"></i>Start Meal</button>
-    <button class="pbtn" id="endMealBtn" onclick="punch('meal_end')" ${st!=='meal'||mealGate||!canPunch?'disabled':''}><i class="ti ti-arrow-back-up"></i>End Meal</button>
-    <button class="pbtn" onclick="punch('break_start')" ${st!=='in'||!canPunch?'disabled':''}><i class="ti ti-coffee"></i>Start Break</button>
-    <button class="pbtn" id="endBreakBtn" onclick="punch('break_end')" ${st!=='break'||breakGate||!canPunch?'disabled':''}><i class="ti ti-arrow-back-up"></i>End Break</button>
+    <button class="pbtn go" onclick="punch('in')" ${st!=='out'||!canPunch?'disabled':''}><i class="ti ti-login-2"></i>${t('b_in')}</button>
+    <button class="pbtn stop" onclick="punch('out')" ${st==='out'||!canPunch?'disabled':''}><i class="ti ti-logout-2"></i>${t('b_out')}</button>
+    <button class="pbtn" onclick="punch('meal_start')" ${st!=='in'||!canPunch?'disabled':''}><i class="ti ti-tools-kitchen-2"></i>${t('b_meal_start')}</button>
+    <button class="pbtn" id="endMealBtn" onclick="punch('meal_end')" ${st!=='meal'||mealGate||!canPunch?'disabled':''}><i class="ti ti-arrow-back-up"></i>${t('b_meal_end')}</button>
+    <button class="pbtn" onclick="punch('break_start')" ${st!=='in'||!canPunch?'disabled':''}><i class="ti ti-coffee"></i>${t('b_break_start')}</button>
+    <button class="pbtn" id="endBreakBtn" onclick="punch('break_end')" ${st!=='break'||breakGate||!canPunch?'disabled':''}><i class="ti ti-arrow-back-up"></i>${t('b_break_end')}</button>
   </div>
   <div class="gate" id="gate"></div>`;
   return `
@@ -669,10 +883,10 @@ function viewClock(){
       <div class="date" id="liveD"></div>
       <div class="status ${sm[st][1]}"><span class="pt"></span> ${sm[st][0]}</div>
     </div>
-    ${canPunch? btns : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>You clock in at the biometric station.</b><br>Web punching isn't enabled for your profile — your punches appear below automatically.</div></div>`}
+    ${canPunch? btns : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>${t('bio_title')}</b><br>${t('bio_sub')}</div></div>`}
     <div class="card" style="margin-top:16px">
-      <h2><i class="ti ti-list-details"></i> Today's punches</h2>
-      ${today.length?`<ul class="plist">${today.map(p=>`<li><span class="tt">${fmtTime(p.ts,e)}</span> ${labelType(p.type)} <span class="src ${p.source==='web'?'web':''}">${p.source==='web'?'web':'clock'}</span></li>`).join('')}</ul>`:`<div class="empty">No punches yet today.</div>`}
+      <h2><i class="ti ti-list-details"></i> ${t('today_punches')}</h2>
+      ${today.length?`<ul class="plist">${today.map(p=>`<li><span class="tt">${fmtTime(p.ts,e)}</span> ${labelType(p.type)} <span class="src ${p.source==='web'?'web':''}">${p.source==='web'?t('src_web'):t('src_clock')}</span></li>`).join('')}</ul>`:`<div class="empty">${t('no_punches')}</div>`}
     </div>`;
 }
 
@@ -688,12 +902,12 @@ function viewTimecard(){
   let blocks='';
   pd.weeks.forEach(wk=>{ const tc=buildTimecard(e.id,wk);
     tc.days.forEach(d=>{ const segs=daySegments(d.punches); if(!segs.length) return;
-      const dt=ymdD(d.ymd); const wd=dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'});
+      const dt=ymdD(d.ymd); const wd=dt.toLocaleDateString(LOCALE(),{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'});
       const shift=segs.reduce((s,x)=>s+x.hrs,0);
-      blocks+=`<div class="dayblk"><div class="dayhd"><b>${wd}</b><span class="h">${h2(shift)} hrs</span></div>
+      blocks+=`<div class="dayblk"><div class="dayhd"><b>${wd}</b><span class="h">${h2(shift)} ${t('hrs')}</span></div>
         ${segs.map(s=>`<div class="segrow" onclick="toggleE('${s.inId}')">
           <div class="chk ${segE(s.inId)?'on':''}"><i class="ti ti-check"></i></div>
-          <div class="io">${s.issue&&s.out===s.in?`<span style="color:var(--bad)"><i class="ti ti-alert-triangle"></i> ${s.issue}</span>`:`${fmtTime(s.in,e)} → ${s.out?fmtTime(s.out,e):'<span style="color:var(--bad)">missing</span>'}`}${s.issue&&s.out!==s.in?` <i class="ti ti-alert-triangle" style="color:var(--bad)" title="${s.issue}"></i>`:''}${s.breakMin!=null?`<div class="b">${s.breakPaid?(s.breakMin<=12?`${Math.round(s.breakMin)} min paid break`:`${Math.round(s.breakMin)} min break — 12 paid, ${Math.round(s.breakMin-12)} unpaid`):`${Math.round(s.breakMin)} min meal`}</div>`:''}</div>
+          <div class="io">${s.issue&&s.out===s.in?`<span style="color:var(--bad)"><i class="ti ti-alert-triangle"></i> ${s.issue}</span>`:`${fmtTime(s.in,e)} → ${s.out?fmtTime(s.out,e):`<span style="color:var(--bad)">${t('missing')}</span>`}`}${s.issue&&s.out!==s.in?` <i class="ti ti-alert-triangle" style="color:var(--bad)" title="${s.issue}"></i>`:''}${s.breakMin!=null?`<div class="b">${s.breakPaid?(s.breakMin<=12?t('br_paid',{n:Math.round(s.breakMin)}):t('br_split',{n:Math.round(s.breakMin),x:Math.round(s.breakMin-12)})):t('br_meal',{n:Math.round(s.breakMin)})}</div>`:''}</div>
           <div class="sh">${s.out?h2(s.hrs):'—'}</div></div>`).join('')}
         ${d.exceptions.map(x=>`<div class="flag ${x.includes('premium')?'prem':''}"><i class="ti ti-${x.includes('premium')?'cash-banknote':'alert-triangle'}"></i> ${x}</div>`).join('')}
       </div>`;
@@ -701,50 +915,50 @@ function viewTimecard(){
   });
 
   return `
-    <div class="ph">My Timecard</div><div class="psub">${weekLabel(start)} – ${weekLabel(ymdAdd(stop,-6))}</div>
-    <div class="periodsel"><button class="${PERIOD==='this'?'on':''}" onclick="PERIOD='this';render()">This pay period</button><button class="${PERIOD==='last'?'on':''}" onclick="PERIOD='last';render()">Last</button></div>
-    <div class="totals"><div class="tc"><span>Regular</span><b>${h2(pd.reg)}</b></div><div class="tc"><span>OT</span><b>${h2(pd.ot+pd.dt)}</b></div><div class="tc tot"><span>Total</span><b>${h2(pd.total)}</b></div></div>
-    ${blocks||'<div class="card"><div class="empty">No hours recorded this period.</div></div>'}
-    ${ids.length?`<div class="apbar"><div class="apstat ${eDone?'done':''}">You ${eDone?'✓':'⋯'}</div><div class="apstat">Manager ⋯</div><div class="apstat">HR ⋯</div></div>
-    <button class="bigbtn ${eDone?'ghost':''}" onclick="${eDone?'':`approveAllE()`}" ${eDone?'disabled':''}><i class="ti ti-${eDone?'circle-check':'checks'}"></i> ${eDone?'Approved — sent to your manager':'Approve my timecard'}</button>
-    <div class="psub" style="margin-top:12px;text-align:center">Tap each entry to verify it, or approve all at once. See a mistake? Use <b>Requests</b>.</div>`:''}`;
+    <div class="ph">${t('tc_title')}</div><div class="psub">${weekLabel(start)} – ${weekLabel(ymdAdd(stop,-6))}</div>
+    <div class="periodsel"><button class="${PERIOD==='this'?'on':''}" onclick="PERIOD='this';render()">${t('pp_this')}</button><button class="${PERIOD==='last'?'on':''}" onclick="PERIOD='last';render()">${t('pp_last')}</button></div>
+    <div class="totals"><div class="tc"><span>${t('tc_regular')}</span><b>${h2(pd.reg)}</b></div><div class="tc"><span>${t('tc_ot')}</span><b>${h2(pd.ot+pd.dt)}</b></div><div class="tc tot"><span>${t('tc_total')}</span><b>${h2(pd.total)}</b></div></div>
+    ${blocks||`<div class="card"><div class="empty">${t('tc_none')}</div></div>`}
+    ${ids.length?`<div class="apbar"><div class="apstat ${eDone?'done':''}">${t('ap_you')} ${eDone?'✓':'⋯'}</div><div class="apstat">${t('ap_mgr')} ⋯</div><div class="apstat">${t('ap_hr')} ⋯</div></div>
+    <button class="bigbtn ${eDone?'ghost':''}" onclick="${eDone?'':`approveAllE()`}" ${eDone?'disabled':''}><i class="ti ti-${eDone?'circle-check':'checks'}"></i> ${eDone?t('tc_approved'):t('tc_approve')}</button>
+    <div class="psub" style="margin-top:12px;text-align:center">${t('tc_help')}</div>`:''}`;
 }
 
 function viewAlerts(){
   const al=myAlerts();
-  return `<div class="ph">Alerts</div><div class="psub">Notifications about your time</div>
+  return `<div class="ph">${t('al_title')}</div><div class="psub">${t('al_sub')}</div>
     ${al.length? `<div class="card">${al.map(a=>`<div class="alert ${a.tone}"><div class="ic"><i class="ti ${a.ic}"></i></div>
       <div class="msg">${a.msg}<div class="sub">${a.sub}</div></div>
       <button class="ack" onclick="ackAlert('${a.key}')"><i class="ti ti-check"></i></button></div>`).join('')}</div>`
-      : `<div class="card"><div class="empty">🎉 You're all caught up.</div></div>`}`;
+      : `<div class="card"><div class="empty">${t('al_clear')}</div></div>`}`;
 }
 
 function viewRequests(){
   const e=me(); if(!REQ.ymd) REQ.ymd=todayYmd(e);
   const mine=DB.requests.filter(r=>r.emp===e.id).sort((a,b)=>new Date(b.at)-new Date(a.at));
   const TYPES=['in','meal_start','meal_end','break_start','break_end','out'];
-  return `<div class="ph">Request a correction</div><div class="psub">Ask HR to add or fix a punch</div>
+  return `<div class="ph">${t('rq_title')}</div><div class="psub">${t('rq_sub')}</div>
     <div class="card">
-      <div class="field"><label>What's wrong?</label><select onchange="REQ.kind=this.value">
-        <option value="add" ${REQ.kind==='add'?'selected':''}>Add a missing punch</option>
-        <option value="fix" ${REQ.kind==='fix'?'selected':''}>Fix an existing punch</option></select></div>
-      <div class="field"><label>Punch type</label><select onchange="REQ.type=this.value">${TYPES.map(t=>`<option value="${t}" ${REQ.type===t?'selected':''}>${labelType(t)}</option>`).join('')}</select></div>
-      <div class="field"><label>Date</label><input type="date" value="${REQ.ymd}" onchange="REQ.ymd=this.value"></div>
-      <div class="field"><label>Correct time</label><input type="time" value="${REQ.time}" onchange="REQ.time=this.value"></div>
-      <div class="field"><label>Note (required)</label><input placeholder="e.g. Forgot to clock out, left at 4:45" oninput="REQ.note=this.value" value="${(REQ.note||'').replace(/"/g,'&quot;')}"></div>
-      <button class="bigbtn" onclick="submitReq()"><i class="ti ti-send"></i> Send to HR</button>
+      <div class="field"><label>${t('rq_what')}</label><select onchange="REQ.kind=this.value">
+        <option value="add" ${REQ.kind==='add'?'selected':''}>${t('rq_add')}</option>
+        <option value="fix" ${REQ.kind==='fix'?'selected':''}>${t('rq_fix')}</option></select></div>
+      <div class="field"><label>${t('rq_ptype')}</label><select onchange="REQ.type=this.value">${TYPES.map(x=>`<option value="${x}" ${REQ.type===x?'selected':''}>${labelType(x)}</option>`).join('')}</select></div>
+      <div class="field"><label>${t('rq_date')}</label><input type="date" value="${REQ.ymd}" onchange="REQ.ymd=this.value"></div>
+      <div class="field"><label>${t('rq_time')}</label><input type="time" value="${REQ.time}" onchange="REQ.time=this.value"></div>
+      <div class="field"><label>${t('rq_note')}</label><input placeholder="${t('rq_ph')}" oninput="REQ.note=this.value" value="${(REQ.note||'').replace(/"/g,'&quot;')}"></div>
+      <button class="bigbtn" onclick="submitReq()"><i class="ti ti-send"></i> ${t('rq_send')}</button>
     </div>
-    ${mine.length?`<div class="card"><h2><i class="ti ti-history"></i> My requests</h2>
-      ${mine.map(r=>`<div class="reqcard"><div><b>${r.kind==='add'?'Add':'Fix'} ${labelType(r.proposed.type)} · ${fmt12(r.proposed.time)}</b><div class="sub" style="font-size:12px;color:var(--muted)">${mdl(r.proposed.ymd)} · "${r.note}"</div></div>
-        <span class="pill ${r.status==='pending'?'warn':r.status==='applied'?'ok':'neutral'}">${r.status}</span></div>`).join('')}</div>`:''}`;
+    ${mine.length?`<div class="card"><h2><i class="ti ti-history"></i> ${t('rq_mine')}</h2>
+      ${mine.map(r=>`<div class="reqcard"><div><b>${r.kind==='add'?t('rq_add_short'):t('rq_fix_short')} ${labelType(r.proposed.type)} · ${fmt12(r.proposed.time)}</b><div class="sub" style="font-size:12px;color:var(--muted)">${mdl(r.proposed.ymd)} · "${r.note}"</div></div>
+        <span class="pill ${r.status==='pending'?'warn':r.status==='applied'?'ok':'neutral'}">${stLabel(r.status)}</span></div>`).join('')}</div>`:''}`;
 }
 function fmt12(hm){ if(!hm||!hm.includes(':'))return hm; let[h,m]=hm.split(':').map(Number); const ap=h<12?'AM':'PM'; h=h%12||12; return `${h}:${String(m).padStart(2,'0')} ${ap}`; }
 function submitReq(){
-  const e=me(); if(!REQ.note.trim()){ toast('Add a note'); return; }
+  const e=me(); if(!REQ.note.trim()){ toast(t('toast_note')); return; }
   const req={id:'r'+Date.now(), emp:e.id, weekKey:weekKeyFor(REQ.ymd+'T12:00:00Z',e), kind:REQ.kind, proposed:{ymd:REQ.ymd,time:REQ.time,type:REQ.type}, note:REQ.note.trim(), status:'pending', by:e.name, at:new Date().toISOString()};
   DB.requests.push(req); chk(Store.addPunchRequest(req),'Request');
   REQ={kind:'add',ymd:todayYmd(e),time:'08:00',type:'in',note:''};
-  toast('Request sent to HR'); render();
+  toast(t('toast_req_sent')); render();
 }
 
 /* ---------- TIME OFF (PTO) ---------- */
@@ -754,9 +968,9 @@ function balance(e,key){ const b=e[key]||{allot:0,used:0}; const committed=commi
 function balCard(label,icon,b){
   const pc=v=>b.allot?Math.min(100,Math.max(0,v/b.allot*100)):0;
   return `<div class="balcard"><div class="balhd"><i class="ti ${icon}"></i> ${label}</div>
-    <div class="balrow"><div><span>Used</span><b>${b.used}h</b></div><div><span>Committed</span><b>${b.committed}h</b></div><div class="av"><span>Available</span><b>${b.available}h</b></div></div>
+    <div class="balrow"><div><span>${t('bal_used')}</span><b>${b.used}h</b></div><div><span>${t('bal_committed')}</span><b>${b.committed}h</b></div><div class="av"><span>${t('bal_available')}</span><b>${b.available}h</b></div></div>
     <div class="balbar"><div class="seg used" style="width:${pc(b.used)}%"></div><div class="seg comm" style="width:${pc(b.committed)}%"></div></div>
-    <div class="balfoot">${b.available}h of ${b.allot}h left · ${(b.available/HRS_PER_DAY).toFixed(1)} days</div></div>`;
+    <div class="balfoot">${t('bal_foot',{a:b.available,b:b.allot,d:(b.available/HRS_PER_DAY).toFixed(1)})}</div></div>`;
 }
 let PTO={month:null, selected:{}, type:'PTO', note:''};
 function initPTO(){ PTO.month=todayYmd(me()).slice(0,7); }
@@ -765,12 +979,12 @@ function ptoToggle(ymd){ if(PTO.selected[ymd]!=null) delete PTO.selected[ymd]; e
 function setDayHours(ymd,h){ PTO.selected[ymd]=h; render(); }
 function ptoDays(){ return Object.keys(PTO.selected).sort(); }
 function ptoTotal(){ return ptoDays().reduce((s,d)=>s+PTO.selected[d],0); }
-function submitPTO(){ const days=ptoDays(); if(!days.length){ toast('Select at least one day'); return; }
+function submitPTO(){ const days=ptoDays(); if(!days.length){ toast(t('toast_selectday')); return; }
   const avail=balance(me(), PTO.type==='Sick'?'sick':'pto').available;
-  if(PTO.type!=='Unpaid' && ptoTotal()>avail){ toast(`Only ${avail}h ${PTO.type} available`); return; }
+  if(PTO.type!=='Unpaid' && ptoTotal()>avail){ toast(t('toast_only_avail',{a:avail,type:PTO.type})); return; }
   const req={id:'pto'+Date.now(), emp:ME, days:days.map(ymd=>({ymd,hours:PTO.selected[ymd]})), type:PTO.type, note:PTO.note.trim(), status:'pending', by:me().name, at:new Date().toISOString()};
   DB.ptoRequests.push(req); chk(Store.addPtoRequest(req),'Time-off request');
-  PTO.selected={}; PTO.note=''; toast('Time-off request sent to HR'); render(); }
+  PTO.selected={}; PTO.note=''; toast(t('toast_to_sent')); render(); }
 
 function viewTimeOff(){
   if(!PTO.month) initPTO();
@@ -781,26 +995,26 @@ function viewTimeOff(){
   for(let d=1;d<=dim;d++){ const ymd=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const past=ymd<today; const sel=PTO.selected[ymd]!=null; const isToday=ymd===today;
     cells+=`<button class="cal-day ${sel?'sel':''} ${past?'past':''} ${isToday?'today':''}" ${past?'disabled':`onclick="ptoToggle('${ymd}')"`}>${d}</button>`; }
-  const monthName=first.toLocaleDateString('en-US',{month:'long',year:'numeric',timeZone:'UTC'});
+  const monthName=first.toLocaleDateString(LOCALE(),{month:'long',year:'numeric',timeZone:'UTC'});
   const sel=ptoDays(); const total=ptoTotal();
   const mine=DB.ptoRequests.filter(r=>r.emp===ME).sort((a,b)=>new Date(b.at)-new Date(a.at));
   const hrOpts=ymd=>[1,2,3,4,5,6,7,8].map(h=>`<option value="${h}" ${PTO.selected[ymd]===h?'selected':''}>${h}h</option>`).join('');
-  return `<div class="ph">Request time off</div><div class="psub">Tap the days you'd like off</div>
-    <div class="balgrid">${balCard('PTO','ti-beach',balance(e,'pto'))}${balCard('Sick','ti-vaccine',balance(e,'sick'))}</div>
+  return `<div class="ph">${t('to_title')}</div><div class="psub">${t('to_sub')}</div>
+    <div class="balgrid">${balCard(t('bal_pto'),'ti-beach',balance(e,'pto'))}${balCard(t('bal_sick'),'ti-vaccine',balance(e,'sick'))}</div>
     <div class="card">
       <div class="cal-hd"><button onclick="ptoMonthShift(-1)"><i class="ti ti-chevron-left"></i></button><b>${monthName}</b><button onclick="ptoMonthShift(1)"><i class="ti ti-chevron-right"></i></button></div>
-      <div class="cal-grid cal-wd">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div>${d}</div>`).join('')}</div>
+      <div class="cal-grid cal-wd">${(LANG==='es'?['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']:['Mon','Tue','Wed','Thu','Fri','Sat','Sun']).map(d=>`<div>${d}</div>`).join('')}</div>
       <div class="cal-grid">${cells}</div>
     </div>
     ${sel.length?`<div class="card">
-      <div class="psub" style="margin:0 0 10px"><b>${total}h across ${sel.length} day${sel.length>1?'s':''}</b> — set hours per day</div>
+      <div class="psub" style="margin:0 0 10px"><b>${t('to_across',{total:total,n:sel.length,dayword:(sel.length>1?t('word_days'):t('word_day'))})}</b></div>
       <div class="daylist">${sel.map(ymd=>`<div class="dayhrs"><span>${mdl(ymd)}</span><select onchange="setDayHours('${ymd}',+this.value)">${hrOpts(ymd)}</select></div>`).join('')}</div>
-      <div class="field" style="margin-top:14px"><label>Type</label><select onchange="PTO.type=this.value">${['PTO','Sick','Unpaid'].map(t=>`<option ${PTO.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
-      <div class="field"><label>Note (optional)</label><input oninput="PTO.note=this.value" value="${(PTO.note||'').replace(/"/g,'&quot;')}" placeholder="e.g. Family vacation"></div>
-      <button class="bigbtn" onclick="submitPTO()"><i class="ti ti-send"></i> Request ${total}h off</button>
-    </div>`:`<div class="psub" style="text-align:center">Select one or more days above to submit a request.</div>`}
-    ${mine.length?`<div class="card"><h2><i class="ti ti-history"></i> My time-off requests</h2>
-      ${mine.map(r=>{const th=r.days.reduce((s,d)=>s+d.hours,0);return `<div class="reqcard"><div><b>${r.type} · ${th}h</b><div class="sub" style="font-size:12px;color:var(--muted)">${r.days.map(d=>`${mdl(d.ymd)} (${d.hours}h)`).join(', ')}${r.note?' · '+r.note:''}</div></div><span class="pill ${r.status==='pending'?'warn':r.status==='approved'?'ok':'neutral'}">${r.status}</span></div>`;}).join('')}</div>`:''}`;
+      <div class="field" style="margin-top:14px"><label>${t('to_type')}</label><select onchange="PTO.type=this.value">${['PTO','Sick','Unpaid'].map(x=>`<option value="${x}" ${PTO.type===x?'selected':''}>${x==='PTO'?t('bal_pto'):x==='Sick'?t('bal_sick'):(LANG==='es'?'Sin pago':'Unpaid')}</option>`).join('')}</select></div>
+      <div class="field"><label>${t('to_note')}</label><input oninput="PTO.note=this.value" value="${(PTO.note||'').replace(/"/g,'&quot;')}" placeholder="${t('to_ph')}"></div>
+      <button class="bigbtn" onclick="submitPTO()"><i class="ti ti-send"></i> ${t('to_request',{total:total})}</button>
+    </div>`:`<div class="psub" style="text-align:center">${t('to_selecthint')}</div>`}
+    ${mine.length?`<div class="card"><h2><i class="ti ti-history"></i> ${t('to_mine')}</h2>
+      ${mine.map(r=>{const th=r.days.reduce((s,d)=>s+d.hours,0);return `<div class="reqcard"><div><b>${r.type} · ${th}h</b><div class="sub" style="font-size:12px;color:var(--muted)">${r.days.map(d=>`${mdl(d.ymd)} (${d.hours}h)`).join(', ')}${r.note?' · '+r.note:''}</div></div><span class="pill ${r.status==='pending'?'warn':r.status==='approved'?'ok':'neutral'}">${stLabel(r.status)}</span></div>`;}).join('')}</div>`:''}`;
 }
 
 async function boot(){
