@@ -494,7 +494,10 @@ function mdl(ymd){ return ymdD(ymd).toLocaleDateString(LOCALE(),{weekday:'short'
 /* punch actions */
 function empStatus(empId){ const e=me(); const last=DB.punches.filter(p=>p.emp===empId).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
   if(!last) return 'out'; if(['in','meal_end','break_end'].includes(last.type)) return 'in'; if(last.type==='meal_start') return 'meal'; if(last.type==='break_start') return 'break'; return 'out'; }
-/* geofence + photo — on-site punch integrity (remote employees are unaffected) */
+/* geofence + photo helpers — RETAINED but currently DORMANT. On-site employees are now
+   kiosk-only (see punch()), so nothing calls the geofence today. Kept in place, along with
+   the punch_locations table and its WS Time config screen, so a future "phone allowed only
+   when on-site" mode can be wired back in without rebuilding it. */
 function geoDistM(lat1,lng1,lat2,lng2){ const R=6371000,toR=d=>d*Math.PI/180;
   const dLat=toR(lat2-lat1),dLng=toR(lng2-lng1);
   const a=Math.sin(dLat/2)**2+Math.cos(toR(lat1))*Math.cos(toR(lat2))*Math.sin(dLng/2)**2;
@@ -536,17 +539,15 @@ async function punch(type){
   const pid='p'+Date.now(); let lat=null, lng=null, photoUrl=null;
 
   if(onsite){
+    // On-site employees must punch on the fixed time-clock tablet (kiosk). A personal phone
+    // is never a valid punch device for them, in or out of the building. (Safety net — the
+    // clock screen also hides the buttons and shows a notice on non-kiosk devices.)
+    if(!isKiosk()){ toast(t('toast_kiosk_only')); return; }
+    // On a kiosk the tablet's physical presence IS the location control, so there's no GPS
+    // check; just capture a photo for the record (best-effort — never blocks the punch).
     PUNCHING=true;
-    const sites=activeSites();
-    if(sites.length && !isKiosk()){                         // geofence personal devices only; a fixed kiosk is its own control
-      toast(t('toast_checkloc'));
-      const loc=await getPosition();
-      if(!loc){ PUNCHING=false; toast(t('toast_turnloc')); return; }
-      if(!withinAnySite(loc.lat,loc.lng)){ PUNCHING=false; toast(t('toast_notsite')); return; }
-      lat=+loc.lat.toFixed(6); lng=+loc.lng.toFixed(6);
-    }
     toast(t('toast_photo'));
-    photoUrl = await capturePunchPhoto(e.empId, pid);       // best-effort; null if camera unavailable
+    photoUrl = await capturePunchPhoto(e.empId, pid);
     PUNCHING=false;
   }
 
@@ -704,6 +705,8 @@ const I18N={
   b_in:"Clock In", b_out:"Clock Out", b_meal_start:"Start Meal", b_meal_end:"End Meal", b_break_start:"Start Break", b_break_end:"End Break",
   bio_title:"You clock in at the biometric station.",
   bio_sub:"Web punching isn't enabled for your profile — your punches appear below automatically.",
+  kiosk_only_title:"Punch in at the time-clock tablet",
+  kiosk_only_sub:"On-site employees clock in and out on the shared tablet at the warehouse.",
   today_punches:"Today's punches", no_punches:"No punches yet today.", src_web:"web", src_clock:"clock",
   lt_in:"Clock In", lt_out:"Clock Out", lt_meal_start:"Meal start", lt_meal_end:"Meal end", lt_break_start:"Break start", lt_break_end:"Break end",
   gate_meal_min:"Meal minimum — you can return in {t}", gate_break_min:"Break minimum — you can return in {t}",
@@ -734,6 +737,7 @@ const I18N={
   toast_meal_min:"Meal minimum is {min} min — {x} to go", toast_break_min:"Break minimum is {min} min — {x} to go",
   toast_checkloc:"Checking your location…", toast_turnloc:"Turn on location to clock in at a work site",
   toast_notsite:"You're not at a WS Display work site — clock in from the warehouse", toast_photo:"Taking your photo…",
+  toast_kiosk_only:"Please use the time-clock tablet to punch.",
   toast_recorded:"{label} recorded — thank you, {name}!", toast_punched:"Punched: {label}",
   toast_tc_approved:"Timecard approved — thank you!", toast_returning:"Returning to HRIS…",
   pill_pending:"pending", pill_applied:"applied", pill_approved:"approved", pill_denied:"denied", pill_cancelled:"cancelled",
@@ -752,6 +756,8 @@ const I18N={
   b_in:"Entrada", b_out:"Salida", b_meal_start:"Iniciar comida", b_meal_end:"Terminar comida", b_break_start:"Iniciar descanso", b_break_end:"Terminar descanso",
   bio_title:"Usted registra en la estación biométrica.",
   bio_sub:"El registro web no está habilitado para su perfil — sus registros aparecen abajo automáticamente.",
+  kiosk_only_title:"Registre en la tableta del reloj",
+  kiosk_only_sub:"Los empleados presenciales registran entrada y salida en la tableta compartida de la bodega.",
   today_punches:"Registros de hoy", no_punches:"Aún no hay registros hoy.", src_web:"web", src_clock:"reloj",
   lt_in:"Entrada", lt_out:"Salida", lt_meal_start:"Inicio de comida", lt_meal_end:"Fin de comida", lt_break_start:"Inicio de descanso", lt_break_end:"Fin de descanso",
   gate_meal_min:"Mínimo de comida — puede volver en {t}", gate_break_min:"Mínimo de descanso — puede volver en {t}",
@@ -782,6 +788,7 @@ const I18N={
   toast_meal_min:"Mínimo de comida es {min} min — faltan {x}", toast_break_min:"Mínimo de descanso es {min} min — faltan {x}",
   toast_checkloc:"Verificando su ubicación…", toast_turnloc:"Active la ubicación para registrar en un sitio de trabajo",
   toast_notsite:"No está en un sitio de WS Display — registre desde la bodega", toast_photo:"Tomando su foto…",
+  toast_kiosk_only:"Use la tableta del reloj para registrar.",
   toast_recorded:"{label} registrado — ¡gracias, {name}!", toast_punched:"Registrado: {label}",
   toast_tc_approved:"¡Horas aprobadas — gracias!", toast_returning:"Volviendo al HRIS…",
   pill_pending:"pendiente", pill_applied:"aplicado", pill_approved:"aprobado", pill_denied:"denegado", pill_cancelled:"cancelado",
@@ -878,7 +885,8 @@ function viewClock(){
   const e=me(); const st=empStatus(e.id);
   const sm={out:[t('st_out'),'out'],in:[t('st_in'),'in'],meal:[t('st_meal'),'meal'],break:[t('st_break'),'break']};
   const todayK=todayYmd(e); const today=DB.punches.filter(p=>p.emp===e.id&&partsInTz(p.ts,e.tz).ymd===todayK).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
-  const canPunch=e.webPunch;
+  const onsite=e.remote===false; const mustUseTablet=onsite && !isKiosk();   // on-site employee on a personal device
+  const canPunch=e.webPunch && !mustUseTablet;
   const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
   const sinceMin = last?(Date.now()-new Date(last.ts).getTime())/60000:0;
   const breakGate = st==='break' && sinceMin<10;   // 10-min minimum break
@@ -898,7 +906,9 @@ function viewClock(){
       <div class="date" id="liveD"></div>
       <div class="status ${sm[st][1]}"><span class="pt"></span> ${sm[st][0]}</div>
     </div>
-    ${canPunch? btns : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>${t('bio_title')}</b><br>${t('bio_sub')}</div></div>`}
+    ${canPunch? btns
+      : mustUseTablet ? `<div class="bio"><i class="ti ti-device-tablet"></i><div><b>${t('kiosk_only_title')}</b><br>${t('kiosk_only_sub')}</div></div>`
+      : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>${t('bio_title')}</b><br>${t('bio_sub')}</div></div>`}
     <div class="card" style="margin-top:16px">
       <h2><i class="ti ti-list-details"></i> ${t('today_punches')}</h2>
       ${today.length?`<ul class="plist">${today.map(p=>`<li><span class="tt">${fmtTime(p.ts,e)}</span> ${labelType(p.type)} <span class="src ${p.source==='web'?'web':''}">${p.source==='web'?t('src_web'):t('src_clock')}</span></li>`).join('')}</ul>`:`<div class="empty">${t('no_punches')}</div>`}
