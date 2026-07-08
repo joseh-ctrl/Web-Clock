@@ -481,7 +481,11 @@ function myAlerts(){
   const e=me(); const {start,stop}=periodOf(e); const out=[]; let cur=start;
   while(cur<=stop && cur<=todayYmd(e)){
     const wk=weekKeyFor(cur+'T12:00:00Z',e); const d=buildTimecard(e.id,wk).days.find(x=>x.ymd===cur);
-    if(d){ d.exceptions.forEach(x=>{ if(x.includes('Missing')||x.includes('no In')) out.push({type:'punch',date:cur,tone:'warn',ic:'ti-alarm',msg:t('al_missing',{date:mdl(cur)}),sub:t('al_missing_sub')}); });
+    if(d){ const isToday=(cur===todayYmd(e)); d.exceptions.forEach(x=>{
+        /* A day that's still in progress (you're clocked in, no out yet) isn't a missed punch —
+           only flag "Missing out punch" once the day is over, i.e. starting the next day. */
+        if(x.includes('Missing out punch') && isToday) return;
+        if(x.includes('Missing')||x.includes('no In')) out.push({type:'punch',date:cur,tone:'warn',ic:'ti-alarm',msg:t('al_missing',{date:mdl(cur)}),sub:t('al_missing_sub')}); });
       if(d.mealViol) out.push({type:'premium',date:cur,tone:'ok',ic:'ti-cash-banknote',msg:t('al_meal',{date:mdl(cur)}),sub:t('al_meal_sub')}); }
     cur=ymdAdd(cur,1);
   }
