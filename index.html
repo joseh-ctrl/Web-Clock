@@ -414,7 +414,7 @@ function payPeriodStart(ymd){ const ms=Date.parse(ymd+'T00:00:00Z')-Date.parse(P
 function h2(n){ const h=Math.floor(n); const m=Math.round((n-h)*60); return `${h}:${String(m).padStart(2,'0')}`; }
 
 function buildTimecard(empId,weekKey){
-  const e=me(); const rule=ruleFor(e);
+  const e=me(); const rule=ruleFor(e); const eToday=todayYmd(e);
   const wp=DB.punches.filter(p=>p.emp===empId && weekKeyFor(p.ts,e)===weekKey).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
   const byDay={}; wp.forEach(p=>{ const k=partsInTz(p.ts,e.tz).ymd; (byDay[k]=byDay[k]||[]).push(p); });
   const days=Object.keys(byDay).sort().map(ymd=>{
@@ -426,7 +426,7 @@ function buildTimecard(empId,weekKey){
       else if(p.type==='meal_end'){ if(mealT){mealMin+=(t-mealT)/60000; inT=t; mealT=null;} }
       else if(p.type==='break_start'){ breakT=t; if(inT){worked+=t-inT;inT=null;} }
       else if(p.type==='break_end'){ if(breakT){ const dur=(t-breakT)/60000; worked+=Math.min(dur,12)*60000; inT=t; breakT=null; } } });
-    if(inT) exceptions.push('Missing out punch');
+    if(inT && ymd<eToday) exceptions.push('Missing out punch'); // open "in" on a past day = real missed punch; on today it just means still on the clock
     const hrs=worked/3600000;
     if(rule.mealLaw){ if(hrs>5&&mealMin===0){exceptions.push('No meal past 5th hour — premium');mealViol=true;}
       else if(mealMin>0&&mealMin<30){exceptions.push(`Short meal ${Math.round(mealMin)}m — premium`);mealViol=true;} }
@@ -481,11 +481,7 @@ function myAlerts(){
   const e=me(); const {start,stop}=periodOf(e); const out=[]; let cur=start;
   while(cur<=stop && cur<=todayYmd(e)){
     const wk=weekKeyFor(cur+'T12:00:00Z',e); const d=buildTimecard(e.id,wk).days.find(x=>x.ymd===cur);
-    if(d){ const isToday=(cur===todayYmd(e)); d.exceptions.forEach(x=>{
-        /* A day that's still in progress (you're clocked in, no out yet) isn't a missed punch —
-           only flag "Missing out punch" once the day is over, i.e. starting the next day. */
-        if(x.includes('Missing out punch') && isToday) return;
-        if(x.includes('Missing')||x.includes('no In')) out.push({type:'punch',date:cur,tone:'warn',ic:'ti-alarm',msg:t('al_missing',{date:mdl(cur)}),sub:t('al_missing_sub')}); });
+    if(d){ d.exceptions.forEach(x=>{ if(x.includes('Missing')||x.includes('no In')) out.push({type:'punch',date:cur,tone:'warn',ic:'ti-alarm',msg:t('al_missing',{date:mdl(cur)}),sub:t('al_missing_sub')}); });
       if(d.mealViol) out.push({type:'premium',date:cur,tone:'ok',ic:'ti-cash-banknote',msg:t('al_meal',{date:mdl(cur)}),sub:t('al_meal_sub')}); }
     cur=ymdAdd(cur,1);
   }
