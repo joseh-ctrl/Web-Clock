@@ -59,6 +59,7 @@ input,select{font-family:inherit;font-size:15px}
 .hdr .langtog{margin-left:auto;background:rgba(255,255,255,.16)}
 .hdr .langtog button{color:rgba(255,255,255,.7)}
 .hdr .langtog button.on{background:rgba(255,255,255,.95);color:var(--navy)}
+.hdr .kioskflag{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background:rgba(255,255,255,.16);color:#fff;padding:5px 9px;border-radius:7px;margin-left:8px}
 .login .langtog{position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);z-index:6}
 .login .langtog button{color:rgba(255,255,255,.72)}
 .login .langtog button.on{background:rgba(255,255,255,.92);color:#12274d}
@@ -537,7 +538,7 @@ async function punch(type){
   if(onsite){
     PUNCHING=true;
     const sites=activeSites();
-    if(sites.length){                                       // geofence only if HR has set up sites
+    if(sites.length && !isKiosk()){                         // geofence personal devices only; a fixed kiosk is its own control
       toast(t('toast_checkloc'));
       const loc=await getPosition();
       if(!loc){ PUNCHING=false; toast(t('toast_turnloc')); return; }
@@ -673,6 +674,19 @@ function startLoginClock(){ if(clockTimer)clearInterval(clockTimer);
 ============================================================ */
 let LANG = (()=>{ try{ return localStorage.getItem('wc_lang')==='es'?'es':'en'; }catch(e){ return 'en'; } })();
 function setLang(l){ LANG=(l==='es'?'es':'en'); try{localStorage.setItem('wc_lang',LANG);}catch(e){} render(); }
+
+/* Kiosk mode — a fixed, bolted-down tablet IS its own location control, so it skips the
+   GPS geofence (indoor tablet GPS is unreliable and would false-block punches) while still
+   capturing the punch photo. Personal phones never carry this flag, so they stay geofenced.
+   Set up once per tablet by opening the web clock URL with ?kiosk=1 ; undo with ?kiosk=0.
+   The flag persists in localStorage on that device, so it survives reloads and re-opens. */
+let KIOSK = (()=>{ try{ return localStorage.getItem('wc_kiosk')==='1'; }catch(e){ return false; } })();
+(function(){ try{
+  const k=new URLSearchParams(location.search).get('kiosk');
+  if(k==='1'){ localStorage.setItem('wc_kiosk','1'); KIOSK=true; }
+  else if(k==='0'){ localStorage.removeItem('wc_kiosk'); KIOSK=false; }
+}catch(e){} })();
+function isKiosk(){ return KIOSK; }
 function LOCALE(){ return LANG==='es'?'es':'en-US'; }
 function t(key,vars){ let s=(I18N[LANG]&&I18N[LANG][key]); if(s==null) s=I18N.en[key]; if(s==null) s=key;
   if(vars) Object.keys(vars).forEach(k=>{ s=s.split('{'+k+'}').join(vars[k]); }); return s; }
@@ -784,6 +798,7 @@ function render(){
   app.innerHTML = `
     <div class="hdr"><div class="av"><i class="ti ti-user"></i></div>
       <div><b>${e.name}</b><span>ID ${e.empId} · ${TZ[e.tz]}</span></div>
+      ${isKiosk()?`<span class="kioskflag"><i class="ti ti-device-tablet"></i> Kiosk</span>`:''}
       ${langToggle()}
       <button class="out" onclick="signOut()"><i class="ti ti-logout"></i></button></div>
     <div class="body">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests})[TAB]()}</div>
