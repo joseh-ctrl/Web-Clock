@@ -511,7 +511,10 @@ function ackAlert(k){ DB.ackAlerts[k]={by:me().name,at:nowDate().toISOString()};
 function mdl(ymd){ return ymdD(ymd).toLocaleDateString(LOCALE(),{weekday:'short',month:'short',day:'numeric',timeZone:'UTC'}); }
 
 /* punch actions */
-function empStatus(empId){ const e=me(); const last=DB.punches.filter(p=>p.emp===empId).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+function empStatus(empId){ const e=DB.employees.find(x=>x.id===empId)||me(); if(!e) return 'out';
+  const today=todayYmd(e);
+  // live status reflects TODAY only — an unclosed punch from a prior day is a timecard exception, not a live state
+  const last=DB.punches.filter(p=>p.emp===empId && partsInTz(p.ts,e.tz).ymd===today).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
   if(!last) return 'out'; if(['in','meal_end','break_end'].includes(last.type)) return 'in'; if(last.type==='meal_start') return 'meal'; if(last.type==='break_start') return 'break'; return 'out'; }
 /* geofence + photo — on-site punch integrity (remote employees are unaffected) */
 function geoDistM(lat1,lng1,lat2,lng2){ const R=6371000,toR=d=>d*Math.PI/180;
