@@ -867,7 +867,8 @@ function startClock(){
     const dEl=document.getElementById('liveD'); if(dEl) dEl.textContent=new Intl.DateTimeFormat(LOCALE(),{timeZone:e.tz,weekday:'long',month:'long',day:'numeric'}).format(now);
     // min-time gate for meal (30) / break (10)
     const gEl=document.getElementById('gate'); if(!gEl) return;
-    const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+    const todayK=todayYmd(e);
+    const last=DB.punches.filter(p=>p.emp===e.id&&partsInTz(p.ts,e.tz).ymd===todayK).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
     let msg='';
     if(last && (last.type==='break_start'||last.type==='meal_start')){
       const isMeal=last.type==='meal_start'; const min=isMeal?30:10;
@@ -887,7 +888,7 @@ function viewClock(){
   const sm={out:[t('st_out'),'out'],in:[t('st_in'),'in'],meal:[t('st_meal'),'meal'],break:[t('st_break'),'break']};
   const todayK=todayYmd(e); const today=DB.punches.filter(p=>p.emp===e.id&&partsInTz(p.ts,e.tz).ymd===todayK).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
   const canPunch=e.webPunch;
-  const last=DB.punches.filter(p=>p.emp===e.id).sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+  const last=today[today.length-1];
   const sinceMin = last?(nowMs()-new Date(last.ts).getTime())/60000:0;
   const breakGate = st==='break' && sinceMin<10;   // 10-min minimum break
   const mealGate  = st==='meal'  && sinceMin<30;    // 30-min minimum meal
@@ -914,10 +915,10 @@ function viewClock(){
 }
 
 function viewTimecard(){
-  const e=me(); const t=todayYmd(e);
+  const e=me(); const tdy=todayYmd(e);
   let start,stop;
-  if(PERIOD==='this'){ start=payPeriodStart(t); stop=ymdAdd(start,13); }
-  else { start=ymdAdd(payPeriodStart(t),-14); stop=ymdAdd(start,13); }
+  if(PERIOD==='this'){ start=payPeriodStart(tdy); stop=ymdAdd(start,13); }
+  else { start=ymdAdd(payPeriodStart(tdy),-14); stop=ymdAdd(start,13); }
   const pd=buildPeriod(e.id,start,stop);
   const ids=pd.weeks.flatMap(wk=>weekSegIds(e.id,wk));
   const eDone=ids.length>0&&ids.every(segE);
