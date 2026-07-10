@@ -163,8 +163,7 @@ input,select{font-family:inherit;font-size:15px}
   .body{grid-area:body;padding:36px 40px 48px;display:flex;flex-direction:column;align-items:center}
   .body>*{width:100%;max-width:920px}
   .body.tab-timecard>*{max-width:1040px}
-  .body.tab-timeoff>*{max-width:960px}
-  .body.tab-timeoff>.calcard{max-width:1260px}
+  .body.tab-timeoff>*{max-width:1320px}
   /* desktop polish: larger headings, cards, and rows across every tab */
   .body .ph{font-size:25px;margin-bottom:4px}
   .body .psub{font-size:15px;margin-bottom:22px}
@@ -174,12 +173,15 @@ input,select{font-family:inherit;font-size:15px}
   .body .reqcard{padding:16px 18px}
   .body .balcard{padding:18px 20px} .body .balrow b{font-size:19px}
   .body .segrow{padding:14px 16px;font-size:15px}
-  /* Time Off: big, colorful calendar filling the page */
-  .tab-timeoff .cal-grid{gap:10px}
-  .tab-timeoff .cal-day{font-size:20px;border-radius:15px}
-  .tab-timeoff .cal-wd div{font-size:12px}
-  .tab-timeoff .cal-hd b{font-size:23px}
-  .tab-timeoff .cal-hd button{width:44px;height:44px;font-size:22px}
+  /* Time Off: balances in a side column, big colorful calendar filling the main area (slim cells, no scroll) */
+  .toff-grid{display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start}
+  .toff-side .balgrid{grid-template-columns:1fr;gap:14px;margin-bottom:0}
+  .tab-timeoff .cal-grid{gap:8px}
+  .tab-timeoff .cal-day{aspect-ratio:auto;height:78px;align-items:flex-start;justify-items:flex-start;padding:9px 11px;font-size:15px;border-radius:12px}
+  .tab-timeoff .cal-pad{aspect-ratio:auto;height:78px}
+  .tab-timeoff .cal-wd div{font-size:11.5px}
+  .tab-timeoff .cal-hd b{font-size:22px}
+  .tab-timeoff .cal-hd button{width:42px;height:42px;font-size:21px}
   .nav{grid-area:side;position:static;transform:none;width:auto;max-width:none;height:100%;flex-direction:column;align-items:stretch;gap:6px;padding:22px 18px;border-top:none;border-right:1px solid var(--line);background:#fff}
   .nav-brand{display:flex;align-items:center;gap:12px;font-weight:800;font-size:18px;line-height:1.15;color:var(--navy);padding:6px 8px 20px;letter-spacing:.1px}
   .nav-brand i{width:44px;height:44px;border-radius:13px;background:var(--grad);color:#fff;display:grid;place-items:center;font-size:26px;box-shadow:0 6px 16px rgba(37,99,235,.3);flex-shrink:0}
@@ -1151,7 +1153,11 @@ function viewTimeOff(){
   const mine=DB.ptoRequests.filter(r=>r.emp===ME).sort((a,b)=>new Date(b.at)-new Date(a.at));
   const hrOpts=ymd=>[1,2,3,4,5,6,7,8].map(h=>`<option value="${h}" ${PTO.selected[ymd]===h?'selected':''}>${h}h</option>`).join('');
   return `<div class="ph">${t('to_title')}</div><div class="psub">${t('to_sub')}</div>
+    <div class="toff-grid">
+    <div class="toff-side">
     <div class="balgrid">${balCard(t('bal_pto'),'ti-beach',balance(e,'pto'))}${balCard(t('bal_sick'),'ti-vaccine',balance(e,'sick'))}</div>
+    </div>
+    <div class="toff-main">
     <div class="card calcard">
       <div class="cal-hd"><button onclick="ptoMonthShift(-1)"><i class="ti ti-chevron-left"></i></button><b>${monthName}</b><button onclick="ptoMonthShift(1)"><i class="ti ti-chevron-right"></i></button></div>
       <div class="cal-grid cal-wd">${(LANG==='es'?['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']:['Mon','Tue','Wed','Thu','Fri','Sat','Sun']).map(d=>`<div>${d}</div>`).join('')}</div>
@@ -1165,7 +1171,9 @@ function viewTimeOff(){
       <button class="bigbtn" onclick="submitPTO()"><i class="ti ti-send"></i> ${t('to_request',{total:total})}</button>
     </div>`:`<div class="psub" style="text-align:center">${t('to_selecthint')}</div>`}
     ${mine.length?`<div class="card"><h2><i class="ti ti-history"></i> ${t('to_mine')}</h2>
-      ${mine.map(r=>{const th=r.days.reduce((s,d)=>s+d.hours,0);return `<div class="reqcard"><div><b>${r.type} · ${th}h</b><div class="sub" style="font-size:12px;color:var(--muted)">${r.days.map(d=>`${mdl(d.ymd)} (${d.hours}h)`).join(', ')}${r.note?' · '+r.note:''}</div></div><span class="pill ${r.status==='pending'?'warn':r.status==='approved'?'ok':'neutral'}">${stLabel(r.status)}</span></div>`;}).join('')}</div>`:''}`;
+      ${mine.map(r=>{const th=r.days.reduce((s,d)=>s+d.hours,0);return `<div class="reqcard"><div><b>${r.type} · ${th}h</b><div class="sub" style="font-size:12px;color:var(--muted)">${r.days.map(d=>`${mdl(d.ymd)} (${d.hours}h)`).join(', ')}${r.note?' · '+r.note:''}</div></div><span class="pill ${r.status==='pending'?'warn':r.status==='approved'?'ok':'neutral'}">${stLabel(r.status)}</span></div>`;}).join('')}</div>`:''}
+    </div>
+    </div>`;
 }
 
 async function boot(){
