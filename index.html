@@ -161,7 +161,25 @@ input,select{font-family:inherit;font-size:15px}
   .hdr .av{width:46px;height:46px;font-size:24px}
   .hdr b{font-size:18px}
   .body{grid-area:body;padding:36px 40px 48px;display:flex;flex-direction:column;align-items:center}
-  .body>*{width:100%;max-width:700px}
+  .body>*{width:100%;max-width:920px}
+  .body.tab-timecard>*{max-width:1040px}
+  .body.tab-timeoff>*{max-width:960px}
+  .body.tab-timeoff>.calcard{max-width:1260px}
+  /* desktop polish: larger headings, cards, and rows across every tab */
+  .body .ph{font-size:25px;margin-bottom:4px}
+  .body .psub{font-size:15px;margin-bottom:22px}
+  .body .card{padding:24px 26px}
+  .body .tc{padding:16px} .body .tc b{font-size:24px}
+  .body .alert{padding:16px 0} .body .alert .msg{font-size:15.5px} .body .alert .ic{width:44px;height:44px;font-size:23px}
+  .body .reqcard{padding:16px 18px}
+  .body .balcard{padding:18px 20px} .body .balrow b{font-size:19px}
+  .body .segrow{padding:14px 16px;font-size:15px}
+  /* Time Off: big, colorful calendar filling the page */
+  .tab-timeoff .cal-grid{gap:10px}
+  .tab-timeoff .cal-day{font-size:20px;border-radius:15px}
+  .tab-timeoff .cal-wd div{font-size:12px}
+  .tab-timeoff .cal-hd b{font-size:23px}
+  .tab-timeoff .cal-hd button{width:44px;height:44px;font-size:22px}
   .nav{grid-area:side;position:static;transform:none;width:auto;max-width:none;height:100%;flex-direction:column;align-items:stretch;gap:6px;padding:22px 18px;border-top:none;border-right:1px solid var(--line);background:#fff}
   .nav-brand{display:flex;align-items:center;gap:12px;font-weight:800;font-size:18px;line-height:1.15;color:var(--navy);padding:6px 8px 20px;letter-spacing:.1px}
   .nav-brand i{width:44px;height:44px;border-radius:13px;background:var(--grad);color:#fff;display:grid;place-items:center;font-size:26px;box-shadow:0 6px 16px rgba(37,99,235,.3);flex-shrink:0}
@@ -208,17 +226,20 @@ input,select{font-family:inherit;font-size:15px}
 .psub{color:var(--muted);font-size:13px;margin-bottom:16px}
 
 /* Calendar (time off) */
-.cal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.cal-hd b{font-size:16px}
-.cal-hd button{background:#eef1f7;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:19px;color:var(--navy)}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
-.cal-wd{margin-bottom:6px}
-.cal-wd div{text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase}
-.cal-day{aspect-ratio:1;border-radius:11px;background:#f4f6fb;font-size:15px;font-weight:600;color:var(--ink);display:grid;place-items:center}
+.cal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.cal-hd b{font-size:17px;color:var(--navy)}
+.cal-hd button{background:#eff4fd;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;color:var(--accent)}
+.cal-hd button:hover{background:#dbe7fc}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.cal-wd{margin-bottom:8px}
+.cal-wd div{text-align:center;font-size:10.5px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.5px}
+.cal-day{aspect-ratio:1;border-radius:12px;background:#eff4fd;font-size:15px;font-weight:700;color:var(--navy);display:grid;place-items:center;border:1.5px solid transparent;transition:.14s}
+.cal-day:hover:not(:disabled){background:#dbe7fc;border-color:#bfd4f5}
 .cal-day:active:not(:disabled){transform:scale(.94)}
-.cal-day.past{opacity:.32}
-.cal-day.today{box-shadow:inset 0 0 0 2px var(--accent)}
-.cal-day.sel{background:var(--navy);color:#fff}
+.cal-day.past{opacity:.45;background:#f4f6fb;color:var(--muted)}
+.cal-day.today{box-shadow:inset 0 0 0 2px var(--accent);background:#e0edff}
+.cal-day.sel{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(37,99,235,.4)}
+.cal-day.sel:hover{background:var(--grad);border-color:transparent}
 .cal-pad{aspect-ratio:1}
 .nav button{font-size:10px}
 
@@ -882,7 +903,7 @@ function render(){
       <div><b>${e.name}</b><span>ID ${e.empId} · ${TZ[e.tz]}</span></div>
       ${langToggle()}
       <button class="out" onclick="signOut()"><i class="ti ti-logout"></i></button></div>
-    <div class="body">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests,occurrences:viewOccurrences})[TAB]()}</div>
+    <div class="body tab-${TAB}">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests,occurrences:viewOccurrences})[TAB]()}</div>
     ${navBar()}`;
   if(TAB==='clock') startClock();
 }
@@ -1131,7 +1152,7 @@ function viewTimeOff(){
   const hrOpts=ymd=>[1,2,3,4,5,6,7,8].map(h=>`<option value="${h}" ${PTO.selected[ymd]===h?'selected':''}>${h}h</option>`).join('');
   return `<div class="ph">${t('to_title')}</div><div class="psub">${t('to_sub')}</div>
     <div class="balgrid">${balCard(t('bal_pto'),'ti-beach',balance(e,'pto'))}${balCard(t('bal_sick'),'ti-vaccine',balance(e,'sick'))}</div>
-    <div class="card">
+    <div class="card calcard">
       <div class="cal-hd"><button onclick="ptoMonthShift(-1)"><i class="ti ti-chevron-left"></i></button><b>${monthName}</b><button onclick="ptoMonthShift(1)"><i class="ti ti-chevron-right"></i></button></div>
       <div class="cal-grid cal-wd">${(LANG==='es'?['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']:['Mon','Tue','Wed','Thu','Fri','Sat','Sun']).map(d=>`<div>${d}</div>`).join('')}</div>
       <div class="cal-grid">${cells}</div>
