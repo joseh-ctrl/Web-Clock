@@ -194,21 +194,21 @@ input,select{font-family:inherit;font-size:15px}
   .toast{left:auto;right:30px;bottom:30px;transform:translateY(10px)}
   .toast.show{transform:translateY(0)}
   /* clock view uses the width: clock + buttons on the left, today's punches on the right */
-  .body>.clockwrap{max-width:1320px}
-  .clockwrap{display:grid;grid-template-columns:1.05fr .95fr;gap:32px;align-items:start}
+  .body>.clockwrap{max-width:1120px}
+  .clockwrap{display:grid;grid-template-columns:1fr .95fr;gap:26px;align-items:start}
   .clock-side{margin-top:0}
-  .clockface{padding:44px 30px;border-radius:24px}
-  .clockface .time{font-size:82px}
-  .clockface .ampm{font-size:30px}
-  .clockface .date{font-size:16px;margin-top:10px}
-  .clockface .status{font-size:16px;padding:9px 20px;margin-top:22px}
-  .punchgrid{gap:16px}
-  .pbtn{padding:30px 14px;border-radius:18px;font-size:18px;gap:12px}
-  .pbtn i{font-size:34px}
-  .clock-side .card{padding:24px 26px}
-  .clock-side .card h2{font-size:16px;margin-bottom:16px}
-  .plist li{padding:15px 0;font-size:16px}
-  .plist .tt{width:96px;font-size:16px}
+  .clockface{padding:30px 24px;border-radius:20px}
+  .clockface .time{font-size:56px}
+  .clockface .ampm{font-size:22px}
+  .clockface .date{font-size:14px;margin-top:8px}
+  .clockface .status{font-size:14px;padding:8px 16px;margin-top:16px}
+  .punchgrid{gap:13px}
+  .pbtn{padding:22px 14px;border-radius:16px;font-size:16px;gap:10px}
+  .pbtn i{font-size:27px}
+  .clock-side .card{padding:20px 22px}
+  .clock-side .card h2{font-size:15px;margin-bottom:14px}
+  .plist li{padding:12px 0;font-size:15px}
+  .plist .tt{width:88px;font-size:15px}
 }
 .clockwrap{width:100%}
 .clock-side{margin-top:16px}
@@ -1017,7 +1017,7 @@ function viewClock(){
       <div class="date" id="liveD"></div>
       <div class="status ${sm[st][1]}"><span class="pt"></span> ${sm[st][0]}</div>
     </div>
-    ${canPunch? btns : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>${t('bio_title')}</b><br>${t('bio_sub')}</div></div>`}
+    ${canPunch? btns : ''}
     </div>
     <div class="clock-side">
     <div class="card">
