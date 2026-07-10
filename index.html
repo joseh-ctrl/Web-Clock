@@ -158,17 +158,32 @@ input,select{font-family:inherit;font-size:15px}
   .body{grid-area:body;padding:30px 30px 44px;padding-bottom:44px;display:flex;flex-direction:column;align-items:center}
   .body>*{width:100%;max-width:660px}
   .nav{grid-area:side;position:static;transform:none;width:auto;max-width:none;height:100%;flex-direction:column;align-items:stretch;gap:5px;padding:18px 14px;border-top:none;border-right:1px solid var(--line);background:#fff}
-  .nav-brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;color:var(--navy);padding:6px 12px 16px;letter-spacing:.2px}
-  .nav-brand i{font-size:24px;color:var(--accent)}
-  .nav button{flex:none;flex-direction:row;justify-content:flex-start;gap:13px;padding:12px 14px;font-size:14.5px;border-radius:11px;color:var(--ink)}
-  .nav button i{font-size:21px}
-  .nav button.on{color:var(--accent);background:#eff3ff}
-  .nav button:hover{background:#f5f7fb}
-  .nav button.on:hover{background:#eff3ff}
+  .nav-brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:17px;color:var(--navy);padding:8px 12px 18px;letter-spacing:.2px}
+  .nav-brand i{font-size:26px;color:var(--accent)}
+  .nav button{flex:none;flex-direction:row;justify-content:flex-start;gap:14px;padding:14px 15px;font-size:15.5px;font-weight:700;border-radius:12px;color:var(--navy)}
+  .nav button i{font-size:25px;color:var(--accent)}
+  .nav button.on{color:#fff;background:var(--grad);box-shadow:0 6px 16px rgba(37,99,235,.28)}
+  .nav button.on i{color:#fff}
+  .nav button:hover:not(.on){background:#eef3ff}
   .nav .nb{position:static;margin-left:auto;top:auto;right:auto}
   .toast{left:auto;right:30px;bottom:30px;transform:translateY(10px)}
   .toast.show{transform:translateY(0)}
+  /* clock view uses the width: clock + buttons on the left, today's punches on the right */
+  .body>.clockwrap{max-width:1040px}
+  .clockwrap{display:grid;grid-template-columns:1.1fr .9fr;gap:26px;align-items:start}
+  .clock-side{margin-top:0}
 }
+.clockwrap{width:100%}
+.clock-side{margin-top:16px}
+.occ-summary{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.occ-sm-lbl{font-size:12px;color:var(--muted);font-weight:600}
+.occ-sm-val{font-size:28px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums}
+.occ-sm-note{max-width:58%;text-align:right;font-size:11.5px;color:var(--muted)}
+.occrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.occrow:first-child{border-top:none}
+.occ-lbl{font-weight:600;font-size:14px}
+.occ-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.occ-pts{font-weight:800;color:var(--warn);font-variant-numeric:tabular-nums;font-size:15px;flex-shrink:0}
 
 .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--navy);color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;font-weight:600;opacity:0;transition:.25s;z-index:40;white-space:nowrap}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -252,6 +267,7 @@ const Store = (() => {
                          pto:{allot:+r.pto_allot||0, used:+r.pto_used||0},
                          sick:{allot:+r.sick_allot||0, used:+r.sick_used||0} });
   const inPunch= r => ({ id:r.id, emp:r.employee_id, ts:r.ts, type:r.type, source:r.source });
+  const inOcc  = r => ({ id:r.id, emp:r.employee_id, date:r.date, code:r.code, note:r.note, by:r.by_name, at:r.at });
   const inPto  = r => ({ id:r.id, emp:r.employee_id, type:r.type, days:r.days, note:r.note, status:r.status,
                          by:r.created_by, at:r.created_at, decidedBy:r.decided_by, decidedAt:r.decided_at });
   const inReq  = r => ({ id:r.id, emp:r.employee_id, weekKey:r.week_key, kind:r.kind,
@@ -291,16 +307,18 @@ const Store = (() => {
     signOut() { return enabled ? sb.auth.signOut() : null; },
     async loadMine() {
       if (!enabled) return null;
-      const [employees, punches, segAppr, punchReqs, ptoReqs, ack] = await Promise.all([
+      const [employees, punches, segAppr, punchReqs, ptoReqs, ack, occ] = await Promise.all([
         get('employees', inEmp), get('punches', inPunch),
         sb.from('seg_approvals').select('*'), get('punch_requests', inReq),
         get('pto_requests', inPto), sb.from('ack_alerts').select('*'),
+        sb.from('occurrences').select('*'),
       ]);
       const segApprovals = {}; (segAppr.data||[]).forEach(r => segApprovals[`${r.in_punch_id}|${r.layer}`] = {by:r.by_name, at:r.at});
       const ackAlerts = {}; (ack.data||[]).forEach(r => ackAlerts[r.alert_key] = {by:r.by_name, at:r.at});
+      const occurrences = occ.error ? [] : (occ.data||[]).map(inOcc);
       const locResp = await sb.from('punch_locations').select('*');
       const punchLocations = (locResp.error ? [] : (locResp.data||[]).map(r=>({id:r.id, name:r.name, lat:r.lat, lng:r.lng, radius:r.radius_m||200, active:r.active!==false})));
-      return { employees, punches, segApprovals, requests:punchReqs, ptoRequests:ptoReqs, ackAlerts, punchLocations };
+      return { employees, punches, segApprovals, requests:punchReqs, ptoRequests:ptoReqs, ackAlerts, punchLocations, occurrences };
     },
     addPunch(p)        { return enabled ? sb.from('punches').insert({id:p.id, employee_id:p.emp, ts:p.ts, type:p.type, source:p.source||'web', photo_url:p.photoUrl||null, lat:p.lat!=null?p.lat:null, lng:p.lng!=null?p.lng:null}) : null; },
     async uploadPunchPhoto(blob, path){ if(!enabled) return null;
@@ -344,7 +362,7 @@ const Live = (() => {
     if(!ME) return;
     const snap = await Store.loadMine();
     if(snap){ DB.employees=snap.employees; DB.punches=snap.punches; DB.segApprovals=snap.segApprovals;
-              DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; }
+              DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; DB.occurrences=snap.occurrences||[]; }
     render();
   }
   async function run(){
@@ -416,7 +434,18 @@ const DB={
   requests:[],         // {id, emp, weekKey, kind, proposed:{ymd,time,type}, note, status, by, at}
   ptoRequests:[],      // {id, emp, dates:[ymd], type, note, status, by, at}
   ackAlerts:{},        // acknowledged alert keys
+  occurrences:[],      // attendance occurrences assigned to me: {id, emp, date, code, note, by, at}
   pins:{'735':'1234','651':'2580'}  // empId -> 4-digit PIN (demo; hashed in Supabase later)
+};
+// attendance occurrence types (mirrors WS Time) — code -> label + points
+const OCC_TYPES={
+  CIE: {label:'Clock In Early (unapproved)', points:0.5},
+  LE:  {label:'Leaving Early (unapproved)',  points:0.5},
+  UA:  {label:'Unapproved Absence',          points:1},
+  CL:  {label:'Called In Late',              points:0.5},
+  L:   {label:'Late',                        points:0.75},
+  CLNS:{label:'Called Late / No Show',       points:5},
+  NCNS:{label:'No Call / No Show',           points:5}
 };
 
 /* seed a few days of punches for the current pay period (as if from the clock) */
@@ -693,7 +722,7 @@ async function afterAuth(){
   if(!eid){ if(LOGIN){ LOGIN.err=t('err_noprofile'); LOGIN.pin=''; LOGIN.busy=false; } return render(); }
   const snap = await Store.loadMine();
   if(snap){ DB.employees=snap.employees; DB.punches=snap.punches; DB.segApprovals=snap.segApprovals;
-            DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; DB.punchLocations=snap.punchLocations||[]; }
+            DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; DB.punchLocations=snap.punchLocations||[]; DB.occurrences=snap.occurrences||[]; }
   ME=eid; LOGIN=null; SSO=false; TAB='clock'; render();
   Live.start();
 }
@@ -730,7 +759,8 @@ const I18N={
   pin_title:"Enter your PIN", signing:"Signing in…", pin_sub:"Enter your 4-digit PIN",
   change_id:"Change ID", no_pin:"No PIN yet? Set one in the HR portal, then sign in here.",
   protected:"Protected by your personal PIN",
-  nav_clock:"Clock", nav_timecard:"Timecard", nav_timeoff:"Time Off", nav_alerts:"Alerts", nav_requests:"Requests",
+  nav_clock:"Clock", nav_timecard:"Timecard", nav_timeoff:"Time Off", nav_alerts:"Alerts", nav_requests:"Requests", nav_occ:"Occurrences",
+  occ_title:"Attendance occurrences", occ_sub:"Points assigned to you and what they're for", occ_points:"Total points (rolling 12 months)", occ_note:"Points roll off 12 months after each occurrence. Questions? Talk to your manager or HR.", occ_none:"No occurrences on file — nice work!",
   st_out:"Clocked out", st_in:"On the clock", st_meal:"On meal break", st_break:"On break",
   b_in:"Clock In", b_out:"Clock Out", b_meal_start:"Start Meal", b_meal_end:"End Meal", b_break_start:"Start Break", b_break_end:"End Break",
   bio_title:"You clock in at the biometric station.",
@@ -779,7 +809,8 @@ const I18N={
   pin_title:"Ingrese su PIN", signing:"Ingresando…", pin_sub:"Ingrese su PIN de 4 dígitos",
   change_id:"Cambiar ID", no_pin:"¿Sin PIN? Configúrelo en el portal de RR. HH. y luego inicie sesión aquí.",
   protected:"Protegido por su PIN personal",
-  nav_clock:"Reloj", nav_timecard:"Horas", nav_timeoff:"Permisos", nav_alerts:"Avisos", nav_requests:"Solicitudes",
+  nav_clock:"Reloj", nav_timecard:"Horas", nav_timeoff:"Permisos", nav_alerts:"Avisos", nav_requests:"Solicitudes", nav_occ:"Incidencias",
+  occ_title:"Incidencias de asistencia", occ_sub:"Puntos asignados a usted y su motivo", occ_points:"Puntos totales (últimos 12 meses)", occ_note:"Los puntos se eliminan 12 meses después de cada incidencia. ¿Preguntas? Hable con su gerente o RR. HH.", occ_none:"Sin incidencias registradas — ¡buen trabajo!",
   st_out:"Sin registrar", st_in:"Trabajando", st_meal:"En comida", st_break:"En descanso",
   b_in:"Entrada", b_out:"Salida", b_meal_start:"Iniciar comida", b_meal_end:"Terminar comida", b_break_start:"Iniciar descanso", b_break_end:"Terminar descanso",
   bio_title:"Usted registra en la estación biométrica.",
@@ -834,13 +865,13 @@ function render(){
       <div><b>${e.name}</b><span>ID ${e.empId} · ${TZ[e.tz]}</span></div>
       ${langToggle()}
       <button class="out" onclick="signOut()"><i class="ti ti-logout"></i></button></div>
-    <div class="body">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests})[TAB]()}</div>
+    <div class="body">${({clock:viewClock,timecard:viewTimecard,timeoff:viewTimeOff,alerts:viewAlerts,requests:viewRequests,occurrences:viewOccurrences})[TAB]()}</div>
     ${navBar()}`;
   if(TAB==='clock') startClock();
 }
 function navBar(){ const n=myAlerts().length;
   const item=(id,ic,lbl,badge)=>`<button class="${TAB===id?'on':''}" onclick="go('${id}')">${badge?`<span class="nb">${badge}</span>`:''}<i class="ti ${ic}"></i>${lbl}</button>`;
-  return `<div class="nav"><div class="nav-brand"><i class="ti ti-clock-hour-4"></i> ${t('brand')}</div>${item('clock','ti-clock-hour-4',t('nav_clock'))}${item('timecard','ti-id-badge-2',t('nav_timecard'))}${item('timeoff','ti-calendar-plus',t('nav_timeoff'))}${item('alerts','ti-bell',t('nav_alerts'),n)}${item('requests','ti-message-report',t('nav_requests'))}</div>`;
+  return `<div class="nav"><div class="nav-brand"><i class="ti ti-clock-hour-4"></i> ${t('brand')}</div>${item('clock','ti-clock-hour-4',t('nav_clock'))}${item('timecard','ti-id-badge-2',t('nav_timecard'))}${item('timeoff','ti-calendar-plus',t('nav_timeoff'))}${item('occurrences','ti-calendar-stats',t('nav_occ'))}${item('alerts','ti-bell',t('nav_alerts'),n)}${item('requests','ti-message-report',t('nav_requests'))}</div>`;
 }
 
 function keypad(){
@@ -939,17 +970,22 @@ function viewClock(){
   </div>
   <div class="gate" id="gate"></div>
   ${compNotes.length?`<div class="compnote"><i class="ti ti-info-circle"></i> ${compNotes.join(' · ')}</div>`:''}`;
-  return `
+  return `<div class="clockwrap">
+    <div class="clock-main">
     <div class="clockface">
       <div class="time" id="liveT">–</div>
       <div class="date" id="liveD"></div>
       <div class="status ${sm[st][1]}"><span class="pt"></span> ${sm[st][0]}</div>
     </div>
     ${canPunch? btns : `<div class="bio"><i class="ti ti-fingerprint"></i><div><b>${t('bio_title')}</b><br>${t('bio_sub')}</div></div>`}
-    <div class="card" style="margin-top:16px">
+    </div>
+    <div class="clock-side">
+    <div class="card">
       <h2><i class="ti ti-list-details"></i> ${t('today_punches')}</h2>
       ${today.length?`<ul class="plist">${today.map(p=>`<li><span class="tt">${fmtTime(p.ts,e)}</span> ${labelType(p.type)} <span class="src ${p.source==='web'?'web':''}">${p.source==='web'?t('src_web'):t('src_clock')}</span></li>`).join('')}</ul>`:`<div class="empty">${t('no_punches')}</div>`}
-    </div>`;
+    </div>
+    </div>
+  </div>`;
 }
 
 function viewTimecard(){
@@ -993,6 +1029,21 @@ function viewAlerts(){
       <div class="msg">${a.msg}<div class="sub">${a.sub}</div></div>
       <button class="ack" onclick="ackAlert('${a.key}')"><i class="ti ti-check"></i></button></div>`).join('')}</div>`
       : `<div class="card"><div class="empty">${t('al_clear')}</div></div>`}`;
+}
+
+function viewOccurrences(){
+  const e=me();
+  const mine = DB.occurrences.filter(o=>o.emp===e.id).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const total = Math.round(mine.reduce((s,o)=>s+((OCC_TYPES[o.code]&&OCC_TYPES[o.code].points)||0),0)*100)/100;
+  const fmtD = ymd => new Intl.DateTimeFormat(LOCALE(),{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}).format(ymdD(ymd));
+  return `<div class="ph">${t('occ_title')}</div><div class="psub">${t('occ_sub')}</div>
+    <div class="card occ-summary">
+      <div><div class="occ-sm-lbl">${t('occ_points')}</div><div class="occ-sm-val">${total}</div></div>
+      <div class="hint occ-sm-note">${t('occ_note')}</div>
+    </div>
+    ${mine.length? `<div class="card" style="margin-top:14px">${mine.map(o=>{ const ty=OCC_TYPES[o.code]||{label:o.code,points:0};
+      return `<div class="occrow"><div class="occ-info"><div class="occ-lbl">${ty.label}</div><div class="occ-sub">${fmtD(o.date)}${o.note?' · '+o.note:''}</div></div><div class="occ-pts">+${ty.points}</div></div>`;
+    }).join('')}</div>` : `<div class="card" style="margin-top:14px"><div class="empty">${t('occ_none')}</div></div>`}`;
 }
 
 function viewRequests(){
