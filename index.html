@@ -354,7 +354,7 @@ const Store = (() => {
     async loadMine() {
       if (!enabled) return null;
       const [employees, punches, segAppr, punchReqs, ptoReqs, ack, occ] = await Promise.all([
-        get('employees', inEmp), get('punchez', inPunch),
+        get('employees', inEmp), get('punches', inPunch),
         sb.from('seg_approvals').select('*'), get('punch_requests', inReq),
         get('pto_requests', inPto), sb.from('ack_alerts').select('*'),
         sb.from('occurrences').select('*'),
