@@ -415,7 +415,7 @@ const Live = (() => {
     if(!pending || running) return;
     if(fieldFocused()){ schedule(600); return; }
     pending=false; running=true;
-    try{ await sync(); }catch(e){ console.error('live sync failed', e); }
+    try{ await sync(); }catch(e){ console.error('live sync failed', e); if(e && e.table && typeof toast==='function') toast(t('err_loadfail')); }
     finally{ running=false; if(pending) schedule(200); }
   }
   function schedule(ms){ pending=true; clearTimeout(timer); timer=setTimeout(run, ms||350); }
@@ -766,7 +766,13 @@ async function checkPin(){ const L=LOGIN;
 async function afterAuth(){
   const eid = await Store.myEmployeeId();
   if(!eid){ if(LOGIN){ LOGIN.err=t('err_noprofile'); LOGIN.pin=''; LOGIN.busy=false; } return render(); }
-  const snap = await Store.loadMine();
+  let snap;
+  try { snap = await Store.loadMine(); }
+  catch(e){
+    console.error('loadMine failed', e);
+    if(LOGIN){ LOGIN.err = t('err_loadfail'); LOGIN.busy=false; LOGIN.pin=''; }
+    return render();
+  }
   if(snap){ DB.employees=snap.employees; DB.punches=snap.punches; DB.segApprovals=snap.segApprovals;
             DB.requests=snap.requests; DB.ptoRequests=snap.ptoRequests; DB.ackAlerts=snap.ackAlerts; DB.punchLocations=snap.punchLocations||[]; DB.occurrences=snap.occurrences||[]; }
   ME=eid; LOGIN=null; SSO=false; TAB='clock'; render();
@@ -847,7 +853,8 @@ const I18N={
   pill_pending:"pending", pill_applied:"applied", pill_approved:"approved", pill_denied:"denied", pill_cancelled:"cancelled",
   err_enterid:"Enter your ID", err_badpin:"Incorrect ID or PIN", err_noprofile:"No profile found — contact HR",
   enr_title:"Create your PIN", enr_sub:"Choose a 4-digit PIN", enr_confirm:"Confirm your PIN", enr_confirm_sub:"Enter it again",
-  enr_note:"Pick a PIN you'll remember — you'll use it every day.", err_pinmismatch:"PINs don't match — try again", err_idnotfound:"ID not found", err_generic:"Something went wrong — try again"
+  enr_note:"Pick a PIN you'll remember — you'll use it every day.", err_pinmismatch:"PINs don't match — try again", err_idnotfound:"ID not found", err_generic:"Something went wrong — try again",
+  err_loadfail:"Couldn't load your timecard — check your connection and try again"
  },
  es:{
   brand:"WS Display · Reloj de tiempo",
@@ -897,7 +904,8 @@ const I18N={
   pill_pending:"pendiente", pill_applied:"aplicado", pill_approved:"aprobado", pill_denied:"denegado", pill_cancelled:"cancelado",
   err_enterid:"Ingrese su ID", err_badpin:"ID o PIN incorrecto", err_noprofile:"No se encontró perfil — contacte a RR. HH.",
   enr_title:"Cree su PIN", enr_sub:"Elija un PIN de 4 dígitos", enr_confirm:"Confirme su PIN", enr_confirm_sub:"Ingréselo de nuevo",
-  enr_note:"Elija un PIN que recuerde — lo usará cada día.", err_pinmismatch:"Los PIN no coinciden — intente de nuevo", err_idnotfound:"ID no encontrado", err_generic:"Algo salió mal — intente de nuevo"
+  enr_note:"Elija un PIN que recuerde — lo usará cada día.", err_pinmismatch:"Los PIN no coinciden — intente de nuevo", err_idnotfound:"ID no encontrado", err_generic:"Algo salió mal — intente de nuevo",
+  err_loadfail:"No se pudo cargar su tarjeta de tiempo — revise su conexión e intente de nuevo"
  }
 };
 
