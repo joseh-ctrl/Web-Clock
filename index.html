@@ -313,7 +313,13 @@ const Store = (() => {
   const inReq  = r => ({ id:r.id, emp:r.employee_id, weekKey:r.week_key, kind:r.kind,
                          proposed:{ymd:r.proposed_ymd, time:r.proposed_time, type:r.proposed_type},
                          note:r.note, status:r.status, by:r.created_by, at:r.created_at });
-  const get = (t, map) => sb.from(t).select('*').then(r => (r.data||[]).map(map));
+  const get = (t, map) => sb.from(t).select('*').then(r => {
+  if (r.error) {
+    console.warn('[load] ' + t + ' failed:', r.error.code, r.error.message);
+    throw Object.assign(new Error('load_failed:' + t), { table: t, code: r.error.code });
+  }
+  return (r.data || []).map(map);
+});
   return {
     enabled, client: () => sb,
     async pinLogin(empId, pin) {
